@@ -1,5 +1,5 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useState, useEffect } from 'react';
+import { StyleSheet, TextInput, Pressable, FlatList, Text, View, ActivityIndicator } from 'react-native';
 
 import { Collapsible } from '@/components/ui/collapsible';
 import { ExternalLink } from '@/components/external-link';
@@ -8,8 +8,47 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Fonts } from '@/constants/theme';
+import { useAuth } from '@/hooks/use-auth';
+import { getPosts, createPost, Post } from '@/lib/supabase-operations';
 
-export default function TabTwoScreen() {
+export default function ExploreScreen() {
+  const { user } = useAuth();
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [newPost, setNewPost] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    loadPosts();
+  }, []);
+
+  const loadPosts = async () => {
+    const { data } = await getPosts();
+    if (data) setPosts(data);
+    setLoading(false);
+  };
+
+  const handleCreatePost = async () => {
+    if (!newPost.trim() || !user) return;
+    setSubmitting(true);
+    const { error } = await createPost(user.id, newPost.trim());
+    setSubmitting(false);
+    if (!error) {
+      setNewPost('');
+      loadPosts();
+    }
+  };
+
+  const renderPost = ({ item }: { item: Post }) => (
+    <View style={styles.postCard}>
+      <ThemedText type="defaultSemiBold">{item.profiles?.username || 'Anónimo'}</ThemedText>
+      <ThemedText>{item.content}</ThemedText>
+      <Text style={styles.date}>
+        {new Date(item.created_at).toLocaleDateString()}
+      </Text>
+    </View>
+  );
+
   return (
     <ParallaxScrollView
       headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
@@ -24,89 +63,78 @@ export default function TabTwoScreen() {
       <ThemedView style={styles.titleContainer}>
         <ThemedText
           type="title"
-          style={{
-            fontFamily: Fonts.rounded,
-          }}>
+          style={{ fontFamily: Fonts.rounded }}>
           Explore
         </ThemedText>
       </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image
-          source={require('@/assets/images/react-logo.png')}
-          style={{ width: 100, height: 100, alignSelf: 'center' }}
+
+      <ThemedText>Publica algo con Supabase:</ThemedText>
+
+      <View style={styles.newPostContainer}>
+        <TextInput
+          style={styles.input}
+          placeholder="¿Qué estás pensando?"
+          value={newPost}
+          onChangeText={setNewPost}
+          multiline
         />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
+        <Pressable style={styles.postButton} onPress={handleCreatePost} disabled={submitting}>
+          {submitting ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.postButtonText}>Publicar</Text>
+          )}
+        </Pressable>
+      </View>
+
+      {loading ? (
+        <ActivityIndicator style={{ marginVertical: 20 }} />
+      ) : (
+        <FlatList
+          data={posts}
+          renderItem={renderPost}
+          keyExtractor={(item) => item.id}
+          scrollEnabled={false}
+        />
+      )}
+
+      <Collapsible title="Configuración de Supabase">
         <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
+          Conectado a: <ThemedText type="defaultSemiBold">zudoikaztozmhhbvaipf.supabase.co</ThemedText>
         </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
+        <ExternalLink href="https://supabase.com/dashboard">
+          <ThemedText type="link">Ir al Dashboard</ThemedText>
         </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful{' '}
-          <ThemedText type="defaultSemiBold" style={{ fontFamily: Fonts.mono }}>
-            react-native-reanimated
-          </ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
-            </ThemedText>
-          ),
-        })}
       </Collapsible>
     </ParallaxScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
+  headerImage: { color: '#808080', bottom: -90, left: -35, position: 'absolute' },
+  titleContainer: { flexDirection: 'row', gap: 8 },
+  newPostContainer: { marginVertical: 15 },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+    minHeight: 80,
+    textAlignVertical: 'top',
   },
-  titleContainer: {
-    flexDirection: 'row',
-    gap: 8,
+  postButton: {
+    backgroundColor: '#007AFF',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
   },
+  postButtonText: { color: '#fff', fontWeight: 'bold' },
+  postCard: {
+    backgroundColor: '#f9f9f9',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  date: { fontSize: 12, marginTop: 5 },
 });
