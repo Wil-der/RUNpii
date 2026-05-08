@@ -1,24 +1,39 @@
 import { useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import { Profile, getProfile } from '@/lib/supabase-operations';
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Obtener sesión inicial
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const loadUserData = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
       setUser(session?.user ?? null);
-      setLoading(false);
-    });
 
-    // Escuchar cambios de autenticación
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        const { data } = await getProfile(session.user.id);
+        setProfile(data);
+      }
+      setLoading(false);
+    };
+
+    loadUserData();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
+
+      if (session?.user) {
+        const { data } = await getProfile(session.user.id);
+        setProfile(data);
+      } else {
+        setProfile(null);
+      }
       setLoading(false);
     });
 
@@ -40,6 +55,7 @@ export function useAuth() {
     if (!error) {
       setUser(null);
       setSession(null);
+      setProfile(null);
     }
     return { error };
   };
@@ -52,5 +68,5 @@ export function useAuth() {
     return { error };
   };
 
-  return { user, session, loading, signIn, signUp, signOut, signInWithGoogle };
+  return { user, session, profile, loading, signIn, signUp, signOut, signInWithGoogle };
 }

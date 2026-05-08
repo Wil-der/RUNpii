@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { StyleSheet, TextInput, Pressable, FlatList, Text, View, ActivityIndicator } from 'react-native';
+import { StyleSheet, FlatList, View, ActivityIndicator } from 'react-native';
 
 import { Collapsible } from '@/components/ui/collapsible';
 import { ExternalLink } from '@/components/external-link';
@@ -9,43 +9,31 @@ import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Fonts } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
-import { getPosts, createPost, Post } from '@/lib/supabase-operations';
+import { getMyOrders, Order } from '@/lib/supabase-operations';
 
 export default function ExploreScreen() {
   const { user } = useAuth();
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [newPost, setNewPost] = useState('');
+  const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    loadPosts();
-  }, []);
-
-  const loadPosts = async () => {
-    const { data } = await getPosts();
-    if (data) setPosts(data);
+  const loadOrders = async () => {
+    if (!user) return;
+    const { data } = await getMyOrders(user.id);
+    if (data) setOrders(data);
     setLoading(false);
   };
 
-  const handleCreatePost = async () => {
-    if (!newPost.trim() || !user) return;
-    setSubmitting(true);
-    const { error } = await createPost(user.id, newPost.trim());
-    setSubmitting(false);
-    if (!error) {
-      setNewPost('');
-      loadPosts();
-    }
-  };
+  useEffect(() => {
+    loadOrders();
+  }, []);
 
-  const renderPost = ({ item }: { item: Post }) => (
-    <View style={styles.postCard}>
-      <ThemedText type="defaultSemiBold">{item.profiles?.username || 'Anónimo'}</ThemedText>
-      <ThemedText>{item.content}</ThemedText>
-      <Text style={styles.date}>
-        {new Date(item.created_at).toLocaleDateString()}
-      </Text>
+  const renderOrder = ({ item }: { item: Order }) => (
+    <View style={styles.orderCard}>
+      <ThemedText type="defaultSemiBold">
+        {item.pickup_address} → {item.delivery_address}
+      </ThemedText>
+      <ThemedText>Estado: {item.status}</ThemedText>
+      <ThemedText>Precio: ${item.final_price || item.estimated_price || 0}</ThemedText>
     </View>
   );
 
@@ -64,35 +52,16 @@ export default function ExploreScreen() {
         <ThemedText
           type="title"
           style={{ fontFamily: Fonts.rounded }}>
-          Explore
+          Mis Pedidos
         </ThemedText>
       </ThemedView>
-
-      <ThemedText>Publica algo con Supabase:</ThemedText>
-
-      <View style={styles.newPostContainer}>
-        <TextInput
-          style={styles.input}
-          placeholder="¿Qué estás pensando?"
-          value={newPost}
-          onChangeText={setNewPost}
-          multiline
-        />
-        <Pressable style={styles.postButton} onPress={handleCreatePost} disabled={submitting}>
-          {submitting ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.postButtonText}>Publicar</Text>
-          )}
-        </Pressable>
-      </View>
 
       {loading ? (
         <ActivityIndicator style={{ marginVertical: 20 }} />
       ) : (
         <FlatList
-          data={posts}
-          renderItem={renderPost}
+          data={orders}
+          renderItem={renderOrder}
           keyExtractor={(item) => item.id}
           scrollEnabled={false}
         />
@@ -113,28 +82,10 @@ export default function ExploreScreen() {
 const styles = StyleSheet.create({
   headerImage: { color: '#808080', bottom: -90, left: -35, position: 'absolute' },
   titleContainer: { flexDirection: 'row', gap: 8 },
-  newPostContainer: { marginVertical: 15 },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 10,
-    minHeight: 80,
-    textAlignVertical: 'top',
-  },
-  postButton: {
-    backgroundColor: '#007AFF',
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  postButtonText: { color: '#fff', fontWeight: 'bold' },
-  postCard: {
+  orderCard: {
     backgroundColor: '#f9f9f9',
     padding: 15,
     borderRadius: 10,
     marginBottom: 10,
   },
-  date: { fontSize: 12, marginTop: 5 },
 });

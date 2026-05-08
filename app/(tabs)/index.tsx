@@ -21,7 +21,7 @@ export default function HomeScreen() {
         />
       }>
       <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Bienvenido a RunPII!</ThemedText>
+        <ThemedText type="title">RUNpii</ThemedText>
         <HelloWave />
       </ThemedView>
       <ThemedView style={styles.stepContainer}>
@@ -31,11 +31,8 @@ export default function HomeScreen() {
         </ThemedText>
       </ThemedView>
       <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Funcionalidades BAAS</ThemedText>
-        <ThemedText>
-          Esta app está conectada a Supabase. Ve a la pestaña <ThemedText type="defaultSemiBold">Explore</ThemedText>{' '}
-          para publicar posts y ver datos en tiempo real.
-        </ThemedText>
+        <ThemedText type="subtitle">Plataforma de mensajería</ThemedText>
+        <ThemedText>RUNpii conecta remitentes, mensajeros y destinatarios. Ve a Mis Pedidos para ver tus envíos.</ThemedText>
       </ThemedView>
       <ThemedView style={styles.stepContainer}>
         <Link href="/modal">
