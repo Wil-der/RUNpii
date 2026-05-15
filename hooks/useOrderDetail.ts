@@ -1,0 +1,221 @@
+// hooks/useOrderDetail.ts
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Alert } from 'react-native';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/use-auth';
+import { useRouter } from 'expo-router';
+
+export interface OrderCoords {
+  latitude: number;
+  longitude: number;
+}
+
+export interface OrderData {
+  id: string;
+  status: string;
+  pickup_address: string;
+  delivery_address: string;
+  pickup_location: OrderCoords | null;
+  delivery_location: OrderCoords | null;
+  estimated_price: number | null;
+  courier_id: string | null;
+  recipient_id: string;
+  customer_id: string;
+  verification_code: string | null;
+  delivery_photo_url: string | null;
+  package_size: string;
+  package_weight_kg: number | null;
+  is_fragile?: boolean;
+  package_description?: string | null;
+  special_instructions?: string | null;
+}
+
+export function useOrderDetail(orderId: string | undefined) {
+  const { profile } = useAuth();
+  const router = useRouter();
+
+  const [order, setOrder] = useState<OrderData | null>(null);
+  const [courierLocation, setCourierLocation] = useState<OrderCoords | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const prevStatusRef = useRef<string | null>(null);
+
+  const loadOrder = useCallback(async () => {
+    if (!orderId) return;
+    setLoading(true);
+    try {
+      // Obtener datos del pedido
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('id', orderId)
+        .single();
+
+      if (error || !data) throw new Error('No se pudo cargar el pedido');
+
+      // Obtener coordenadas limpias
+      const { data: coordsData } = await supabase
+        .rpc('get_order_for_map', { p_order_id: orderId });
+
+      let pickupCoords: OrderCoords | null = null;
+      let deliveryCoords: OrderCoords | null = null;
+
+      if (coordsData && coordsData.length > 0) {
+        pickupCoords = {
+          latitude: coordsData[0].pickup_lat,
+          longitude: coordsData[0].pickup_lng,
+        };
+        deliveryCoords = {
+          latitude: coordsData[0].delivery_lat,
+          longitude: coordsData[0].delivery_lng,
+        };
+      }
+
+      const orderData: OrderData = {
+        id: data.id,
+        status: data.status,
+        pickup_address: data.pickup_address,
+        delivery_address: data.delivery_address,
+        pickup_location: pickupCoords,
+        delivery_location: deliveryCoords,
+        estimated_price: data.estimated_price,
+        courier_id: data.courier_id,
+        recipient_id: data.recipient_id,
+        customer_id: data.customer_id,
+        verification_code: data.verification_code,
+        delivery_photo_url: data.delivery_photo_url,
+        package_size: data.package_size,
+        package_weight_kg: data.package_weight_kg,
+        is_fragile: data.is_fragile,
+        package_description: data.package_description,
+        special_instructions: data.special_instructions,
+      };
+
+      setOrder(orderData);
+
+      // Ubicación del mensajero si corresponde
+      if (data.courier_id && ['assigned', 'picked_up', 'in_transit'].includes(data.status)) {
+        const { data: loc } = await supabase
+          .from('courier_locations')
+          .select('location')
+          .eq('courier_id', data.courier_id)
+          .order('timestamp', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (loc?.location) {
+          const raw = loc.location;
+          if (typeof raw === 'object' && Array.isArray(raw.coordinates)) {
+            setCourierLocation({
+              latitude: raw.coordinates[1],
+              longitude: raw.coordinates[0],
+            });
+          } else if (typeof raw === 'string') {
+            const match = raw.match(/POINT\s*\(?\s*([-\d.]+)\s+([-\d.]+)\s*\)?/i);
+            if (match) {
+              setCourierLocation({
+                latitude: parseFloat(match[2]),
+                longitude: parseFloat(match[1]),
+              });
+            }
+          }
+        }
+      } else {
+        setCourierLocation(null);
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [orderId]);
+
+  // Suscripción en tiempo real
+  useEffect(() => {
+    if (!orderId) return;
+    loadOrder();
+
+    const subscription = supabase
+      .channel(`order-${orderId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${orderId}` },
+        () => {
+          loadOrder(); // recarga completa para mantener coordenadas
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
+  }, [orderId, loadOrder]);
+
+  // Redirección automática si el pedido vuelve a pending (rechazo / expiración)
+  useEffect(() => {
+    if (order && prevStatusRef.current) {
+      if (
+        ['awaiting_courier', 'assigned'].includes(prevStatusRef.current) &&
+        order.status === 'pending' &&
+        profile?.role === 'customer'
+      ) {
+        // El pedido quedó sin mensajero; volver a la selección
+        router.replace({ pathname: '/(tabs)/select-courier', params: { order_id: order.id } });
+      }
+    }
+    prevStatusRef.current = order?.status ?? null;
+  }, [order?.status, order?.id]);
+
+  // Acciones genéricas
+  const handleAction = async (action: string, extraBody?: any) => {
+    setActionLoading(action);
+    try {
+      const { error } = await supabase.functions.invoke(action, {
+        body: { order_id: orderId, ...extraBody },
+      });
+      if (error) throw new Error(error.message);
+      await loadOrder();
+    } catch (error: any) {
+      Alert.alert('Error', error.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const acceptOrder = () => handleAction('accept-order');
+  const rejectOrder = () => handleAction('reject-order');
+  const confirmPickup = () => handleAction('confirm-pickup');
+  const confirmDelivery = (code: string) => {
+    if (!code.trim()) {
+      Alert.alert('Código requerido', 'Ingresa el código de verificación del destinatario');
+      return;
+    }
+    handleAction('confirm-delivery', { verification_code: code.trim() });
+  };
+  const initiateReturn = () =>
+    handleAction('initiate-return', { reason: 'No se pudo entregar' });
+  const cancelOrder = () => {
+    Alert.alert('Cancelar pedido', '¿Seguro que deseas cancelar este pedido?', [
+      { text: 'No', style: 'cancel' },
+      {
+        text: 'Sí, cancelar',
+        onPress: () => handleAction('cancel-order', { cancel_reason: 'Cancelado por el cliente' }),
+      },
+    ]);
+  };
+
+  return {
+    order,
+    courierLocation,
+    loading,
+    actionLoading,
+    profile,
+    acceptOrder,
+    rejectOrder,
+    confirmPickup,
+    confirmDelivery,
+    initiateReturn,
+    cancelOrder,
+    reload: loadOrder,
+  };
+}

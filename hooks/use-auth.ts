@@ -11,31 +11,38 @@ export function useAuth() {
 
   useEffect(() => {
     const loadUserData = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-      setUser(session?.user ?? null);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setSession(session);
+        setUser(session?.user ?? null);
 
-      if (session?.user) {
-        const { data } = await getProfile(session.user.id);
-        setProfile(data);
+        if (session?.user) {
+          const { data } = await getProfile(session.user.id);
+          setProfile(data);
+        }
+      } catch (err) {
+        console.error('Auth initialization error:', err);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     loadUserData();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        setSession(session);
+        setUser(session?.user ?? null);
 
-      if (session?.user) {
-        const { data } = await getProfile(session.user.id);
-        setProfile(data);
-      } else {
-        setProfile(null);
+        if (session?.user) {
+          const { data } = await getProfile(session.user.id);
+          setProfile(data);
+        } else {
+          setProfile(null);
+        }
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    );
 
     return () => subscription.unsubscribe();
   }, []);
@@ -45,8 +52,11 @@ export function useAuth() {
     return { error };
   };
 
-  const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password });
+  const signUp = async (email: string, password: string, role?: 'customer' | 'courier') => {
+    const options = role
+      ? { data: { role } }
+      : undefined;
+    const { error } = await supabase.auth.signUp({ email, password, options });
     return { error };
   };
 
@@ -68,5 +78,23 @@ export function useAuth() {
     return { error };
   };
 
-  return { user, session, profile, loading, signIn, signUp, signOut, signInWithGoogle };
+  const refreshProfile = async () => {
+    if (session?.user) {
+      const { data } = await getProfile(session.user.id);
+      setProfile(data);
+    }
+  };
+
+  return {
+    user,
+    session,
+    profile,
+    loading,
+    signIn,
+    signUp,
+    signOut,
+    refreshProfile,
+    signInWithGoogle,
+    isEmailConfirmed: !!user?.email_confirmed_at,
+  };
 }

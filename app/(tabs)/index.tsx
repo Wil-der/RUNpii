@@ -1,66 +1,111 @@
-import { Image } from 'expo-image';
-import { StyleSheet } from 'react-native';
-
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+// app/(tabs)/index.tsx
+import { StyleSheet, View, Pressable, Text, Image } from 'react-native';
 import { Link } from 'expo-router';
+import { Feather } from '@expo/vector-icons';
 import { useAuth } from '@/hooks/use-auth';
 
 export default function HomeScreen() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">RUNpii</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Tu cuenta</ThemedText>
-        <ThemedText>
-          Email: <ThemedText type="defaultSemiBold">{user?.email}</ThemedText>
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Plataforma de mensajería</ThemedText>
-        <ThemedText>RUNpii conecta remitentes, mensajeros y destinatarios. Ve a Mis Pedidos para ver tus envíos.</ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Abrir modal</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
+    <View style={styles.container}>
+      {/* Cabecera con saludo */}
+      <View style={styles.header}>
+        <View>
+          <Feather name="package" size={28} color="#F7C925" style={{ marginBottom: 8 }} />
+          <Text style={styles.greeting}>
+            ¡Hola{profile?.full_name ? `, ${profile.full_name.split(' ')[0]}` : ''}!
+          </Text>
+          <Text style={styles.subtitle}>
+            {profile?.role === 'courier' ? 'Gestiona tus entregas' : 'Envía o recibe paquetes fácilmente'}
+          </Text>
+        </View>
+        {/* Avatar pequeño (opcional) */}
+        {profile?.avatar_url && (
+          <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
+        )}
+      </View>
+
+      {/* Accesos rápidos */}
+      <View style={styles.quickActions}>
+        <Link href="/(tabs)/explore" asChild>
+          <Pressable style={styles.actionCard}>
+            <Feather name="package" size={32} color="#F7C925" />
+            <Text style={styles.actionTitle}>Mis Pedidos</Text>
+            <Text style={styles.actionDesc}>
+              {profile?.role === 'courier'
+                ? 'Ver pedidos activos y pendientes'
+                : 'Historial de envíos y estado actual'}
+            </Text>
+          </Pressable>
         </Link>
-      </ThemedView>
-    </ParallaxScrollView>
+
+        <Link href="/(tabs)/profile" asChild>
+          <Pressable style={styles.actionCard}>
+            <Feather name="user" size={32} color="#F7C925" />
+            <Text style={styles.actionTitle}>Mi Perfil</Text>
+            <Text style={styles.actionDesc}>
+              {profile?.role === 'courier'
+                ? 'Gestiona tu disponibilidad y datos'
+                : 'Administra tu información personal'}
+            </Text>
+          </Pressable>
+        </Link>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+  },
+  header: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 8,
+    marginBottom: 40,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  greeting: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 28,
+    color: '#1A1A1A',
+    marginBottom: 4,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  subtitle: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 16,
+    color: '#6B7280',
   },
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
+  quickActions: {
+    gap: 16,
+  },
+  actionCard: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  actionTitle: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 18,
+    color: '#1A1A1A',
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  actionDesc: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  // Faltaba el import de Text e Image, lo agrego
 });

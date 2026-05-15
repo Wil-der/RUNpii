@@ -9,12 +9,45 @@ export type CourierLocation = Tables<'courier_locations'>['Row'];
 export type Rating = Tables<'ratings'>['Row'];
 
 // Operaciones de profiles
+// Para obtener el perfil propio (usuario autenticado) - usa tabla profiles
 export const getProfile = async (userId: string) => {
+  console.log('getProfile: fetching from profiles for userId:', userId);
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', userId)
     .single();
+  console.log('getProfile: result', { data, error });
+  return { data, error };
+};
+
+// Para listar perfiles públicos (otros usuarios, como mensajeros disponibles) - usa vista public_profiles
+export const getPublicProfiles = async (filters?: {
+  role?: string;
+  verification_status?: string;
+  is_active?: boolean;
+  availability_status?: string;
+}) => {
+  console.log('getPublicProfiles: fetching with filters:', filters);
+  let query = supabase
+    .from('public_profiles')
+    .select('*');
+
+  if (filters?.role) {
+    query = query.eq('role', filters.role);
+  }
+  if (filters?.verification_status) {
+    query = query.eq('verification_status', filters.verification_status);
+  }
+  if (filters?.is_active !== undefined) {
+    query = query.eq('is_active', filters.is_active);
+  }
+  if (filters?.availability_status) {
+    query = query.eq('availability_status', filters.availability_status);
+  }
+
+  const { data, error } = await query;
+  console.log('getPublicProfiles: result', { count: data?.length, error });
   return { data, error };
 };
 
