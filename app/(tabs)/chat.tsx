@@ -18,15 +18,14 @@ import ChatMessage from '@/components/ChatMessage';
 import ImagePickerButton from '@/components/ImagePickerButton';
 import { useAppModal } from '@/contexts/ModalContext';
 import { Image } from 'react-native';
-import { useAuth } from '@/hooks/use-auth';
-
-const { profile } = useAuth;
+import { useAuth } from '@/hooks/use-auth';   // <-- AÑADIR
 
 export default function ChatScreen() {
   const { order_id } = useLocalSearchParams<{ order_id: string }>();
   const router = useRouter();
   const { showModal } = useAppModal();
   const { messages, loading, sendText, sendImage } = useChat(order_id);
+  const { profile } = useAuth();               // <-- AÑADIR (faltaba)
 
   const [newMessage, setNewMessage] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -52,7 +51,7 @@ export default function ChatScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}   // <-- padding en ambos
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
     >
       {/* Cabecera */}
@@ -64,52 +63,54 @@ export default function ChatScreen() {
         <View style={{ width: 22 }} />
       </View>
 
-      {/* Mensajes */}
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        renderItem={({ item }) => (
-          <ChatMessage
-            item={item}
-            isMine={item.sender_id === profile?.id}
-            onImagePress={setFullscreenImage}
-          />
-        )}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.messageList}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Feather name="message-circle" size={40} color="#ccc" />
-            <Text style={styles.emptyText}>Sin mensajes aún</Text>
-          </View>
-        }
-      />
+      {/* Contenido flexible (lista + barra) */}
+      <View style={styles.content}>
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          renderItem={({ item }) => (
+            <ChatMessage
+              item={item}
+              isMine={item.sender_id === profile?.id}   // ahora profile existe
+              onImagePress={setFullscreenImage}
+            />
+          )}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.messageList}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Feather name="message-circle" size={40} color="#ccc" />
+              <Text style={styles.emptyText}>Sin mensajes aún</Text>
+            </View>
+          }
+        />
 
-      {/* Barra de entrada */}
-      <View style={styles.inputBar}>
-        <ImagePickerButton
-          uploading={uploading}
-          onUploadStart={() => setUploading(true)}
-          onImagePicked={handleImagePicked}
-          onError={(msg) => showModal({ title: 'Error', message: msg, type: 'info' })}
-          onComplete={() => setUploading(false)}
-        />
-        <TextInput
-          style={styles.textInput}
-          value={newMessage}
-          onChangeText={setNewMessage}
-          placeholder="Escribe un mensaje..."
-          placeholderTextColor="#9CA3AF"
-          multiline
-          maxLength={500}
-        />
-        <TouchableOpacity
-          style={[styles.sendButton, !newMessage.trim() && styles.sendButtonDisabled]}
-          onPress={handleSend}
-          disabled={!newMessage.trim()}
-        >
-          <Feather name="send" size={18} color="#1A1A1A" />
-        </TouchableOpacity>
+        {/* Barra de entrada */}
+        <View style={styles.inputBar}>
+          <ImagePickerButton
+            uploading={uploading}
+            onUploadStart={() => setUploading(true)}
+            onImagePicked={handleImagePicked}
+            onError={(msg) => showModal({ title: 'Error', message: msg, type: 'info' })}
+            onComplete={() => setUploading(false)}
+          />
+          <TextInput
+            style={styles.textInput}
+            value={newMessage}
+            onChangeText={setNewMessage}
+            placeholder="Escribe un mensaje..."
+            placeholderTextColor="#9CA3AF"
+            multiline
+            maxLength={500}
+          />
+          <TouchableOpacity
+            style={[styles.sendButton, !newMessage.trim() && styles.sendButtonDisabled]}
+            onPress={handleSend}
+            disabled={!newMessage.trim()}
+          >
+            <Feather name="send" size={18} color="#1A1A1A" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Visor de imagen */}
@@ -133,6 +134,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
   },
   title: { fontFamily: 'Inter_700Bold', fontSize: 20, color: '#1A1A1A' },
+  content: { flex: 1 },   // <-- nuevo contenedor
   messageList: { paddingHorizontal: 16, paddingVertical: 12, flexGrow: 1 },
   empty: { alignItems: 'center', marginTop: 40 },
   emptyText: { fontFamily: 'Inter_400Regular', fontSize: 14, color: '#6B7280', marginTop: 8 },
@@ -140,6 +142,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'flex-end',
     paddingHorizontal: 16, paddingVertical: 10,
     borderTopWidth: 1, borderTopColor: '#E5E7EB', gap: 8,
+    backgroundColor: '#FFFFFF',   // para que no se vea transparencia
   },
   textInput: {
     flex: 1,

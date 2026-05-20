@@ -29,10 +29,10 @@ export default function ActiveChatsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadChats = useCallback(async () => {
+  const loadChats = useCallback(async (silent = false) => {
     if (!user) return;
+    if (!silent) setLoading(true);
     try {
-      // Obtener pedidos activos donde el chat está habilitado
       const { data, error } = await supabase
         .from('orders')
         .select('id, pickup_address, delivery_address, status, customer_id, courier_id, recipient_id')
@@ -42,7 +42,6 @@ export default function ActiveChatsScreen() {
 
       if (error) throw error;
 
-      // Formatear cada chat con el nombre del otro participante
       const formatted = (data || []).map((order) => ({
         order_id: order.id,
         pickup_address: order.pickup_address,
@@ -55,8 +54,7 @@ export default function ActiveChatsScreen() {
     } catch (error: any) {
       console.error('Error al cargar chats:', error.message);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (!silent) setLoading(false);
     }
   }, [user]);
 
@@ -64,12 +62,31 @@ export default function ActiveChatsScreen() {
     loadChats();
   }, [loadChats]);
 
+  // Suscripción en tiempo real a cambios en orders (recarga silenciosa)
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase
+      .channel('active-chats-list')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'orders' },
+        () => {
+          loadChats(true); // recarga silenciosa, sin parpadeo
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, loadChats]);
+
   const onRefresh = () => {
     setRefreshing(true);
     loadChats();
+    setRefreshing(false);
   };
 
-  // Devuelve una etiqueta descriptiva del otro participante
   const getOtherParticipant = (order: any) => {
     if (order.customer_id === user?.id) {
       return order.courier_id ? 'Mensajero' : 'Destinatario';

@@ -62,33 +62,19 @@ export function useSelectCourier(orderId: string | undefined) {
     sortBy: 'distance',
   });
 
-  const loadData = useCallback(async () => {
-    if (!orderId) {
-      console.warn('⚠️ useSelectCourier: no orderId');
-      return;
-    }
-    setLoading(true);
-    console.log('⏳ loadData iniciado, orderId:', orderId);
+  const loadData = useCallback(async (silent = false) => {
+    if (!orderId) return;
+    if (!silent) setLoading(true);
     try {
-      // 1. Obtener coordenadas del pedido
-      console.log('📡 Llamando a get_order_for_map...');
+      // Obtener coordenadas del pedido
       const { data: orderData, error: orderError } = await supabase
         .rpc('get_order_for_map', { p_order_id: orderId });
-      console.log('📡 get_order_for_map respuesta:', { data: orderData, error: orderError });
 
-      if (orderError) throw new Error('Error en get_order_for_map: ' + orderError.message);
-      if (!orderData || orderData.length === 0) {
-        throw new Error('get_order_for_map no devolvió datos para el pedido');
+      if (orderError || !orderData || orderData.length === 0) {
+        throw new Error('No se pudo cargar el pedido');
       }
 
       const info = orderData[0];
-      console.log('📍 Datos del pedido recibidos:', {
-        pickup_lat: info.pickup_lat,
-        pickup_lng: info.pickup_lng,
-        delivery_lat: info.delivery_lat,
-        delivery_lng: info.delivery_lng,
-      });
-
       const pickupCoords = {
         latitude: info.pickup_lat,
         longitude: info.pickup_lng,
@@ -107,41 +93,29 @@ export function useSelectCourier(orderId: string | undefined) {
         delivery_location: deliveryCoords,
       });
 
+      // Calcular distancia total
       const tripDistance = haversineDistance(
         pickupCoords.latitude, pickupCoords.longitude,
         deliveryCoords.latitude, deliveryCoords.longitude
       );
       setTotalDistance(tripDistance);
-      console.log('📏 Distancia total calculada:', tripDistance);
 
-      // 2. Obtener mensajeros cercanos
-      console.log('📡 Llamando a nearby_couriers con:', {
-        lat: pickupCoords.latitude,
-        lng: pickupCoords.longitude,
-      });
+      // Obtener mensajeros cercanos
       const { data: couriersData, error: couriersError } = await supabase.rpc('nearby_couriers', {
         pickup_lat: pickupCoords.latitude,
         pickup_lng: pickupCoords.longitude,
         max_distance_km: 50,
         limit_count: 20,
       });
-      console.log('📡 nearby_couriers respuesta:', {
-        data: couriersData,
-        error: couriersError,
-        length: couriersData?.length,
-      });
 
-      if (couriersError) throw new Error('Error en nearby_couriers: ' + couriersError.message);
-      if (!couriersData || couriersData.length === 0) {
-        console.warn('⚠️ No se encontraron mensajeros cercanos (array vacío).');
-      }
+      if (couriersError) throw couriersError;
 
+      // Añadir precio estimado
       const enriched = (couriersData as Courier[]).map((c) => ({
         ...c,
         estimated_price: +(tripDistance * c.price_per_km).toFixed(2),
       }));
 
-      console.log('✅ Mensajeros enriquecidos:', enriched.length);
       setCouriers(enriched);
 
       // Limpiar filtros al cargar nuevos datos
@@ -152,7 +126,6 @@ export function useSelectCourier(orderId: string | undefined) {
         sortBy: 'distance',
       });
     } catch (error: any) {
-      console.error('❌ Error en loadData:', error.message);
       showModal({
         title: 'Error',
         message: error.message,
@@ -160,15 +133,39 @@ export function useSelectCourier(orderId: string | undefined) {
       });
       router.back();
     } finally {
-      setLoading(false);
-      console.log('✅ loadData finalizado');
+      if (!silent) setLoading(false);
     }
   }, [orderId]);
 
+  // Carga inicial
   useEffect(() => {
     loadData();
   }, [loadData]);
 
+  // Suscripción a cambios en perfiles de mensajeros (recarga silenciosa)
+  useEffect(() => {
+    if (!orderId) return;
+    const channel = supabase
+      .channel('select-courier-profiles')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles' },
+        (payload) => {
+          // Solo recargar si el cambio afecta a un mensajero que podría estar en la lista
+          const updated = payload.new as any;
+          if (updated?.role === 'courier') {
+            loadData(true); // recarga silenciosa
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [orderId, loadData]);
+
+  // Aplicar filtros y ordenamiento
   const filteredCouriers = useMemo(() => {
     let result = [...couriers];
 
@@ -182,6 +179,7 @@ export function useSelectCourier(orderId: string | undefined) {
       result = result.filter((c) => (c.rating_average ?? 0) >= filters.minRating!);
     }
 
+    // Ordenar
     result.sort((a, b) => {
       switch (filters.sortBy) {
         case 'price':
@@ -231,6 +229,6 @@ export function useSelectCourier(orderId: string | undefined) {
     filters,
     setFilters,
     assignCourier,
-    reload: loadData,
+    reload: () => loadData(),
   };
 }

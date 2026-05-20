@@ -1,6 +1,8 @@
 // components/OrderMap.tsx
-import { StyleSheet, View, Text } from 'react-native';
+import { useRef, useEffect } from 'react';
+import { StyleSheet, View, TouchableOpacity } from 'react-native';
 import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
+import { Feather } from '@expo/vector-icons';
 
 interface Props {
   pickupCoords: { latitude: number; longitude: number } | null;
@@ -9,6 +11,19 @@ interface Props {
 }
 
 export default function OrderMap({ pickupCoords, deliveryCoords, courierLocation }: Props) {
+  const mapRef = useRef<MapView>(null);
+
+  // Ajustar el mapa automáticamente cuando cambia la ubicación del mensajero
+  useEffect(() => {
+    if (!pickupCoords || !deliveryCoords) return;
+    const points = [pickupCoords, deliveryCoords];
+    if (courierLocation) points.push(courierLocation);
+    mapRef.current?.fitToCoordinates(points, {
+      edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
+      animated: true,
+    });
+  }, [pickupCoords, deliveryCoords, courierLocation]);
+
   if (!pickupCoords || !deliveryCoords) {
     return (
       <View style={styles.fallback}>
@@ -17,20 +32,16 @@ export default function OrderMap({ pickupCoords, deliveryCoords, courierLocation
     );
   }
 
-  const midLat = (pickupCoords.latitude + deliveryCoords.latitude) / 2;
-  const midLng = (pickupCoords.longitude + deliveryCoords.longitude) / 2;
-  const latDelta = Math.abs(pickupCoords.latitude - deliveryCoords.latitude) * 2 + 0.05;
-  const lngDelta = Math.abs(pickupCoords.longitude - deliveryCoords.longitude) * 2 + 0.05;
-
   return (
     <View style={styles.container}>
       <MapView
+        ref={mapRef}
         style={styles.map}
         initialRegion={{
-          latitude: midLat,
-          longitude: midLng,
-          latitudeDelta: latDelta,
-          longitudeDelta: lngDelta,
+          latitude: (pickupCoords.latitude + deliveryCoords.latitude) / 2,
+          longitude: (pickupCoords.longitude + deliveryCoords.longitude) / 2,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
         }}
         provider={PROVIDER_DEFAULT}
       >
@@ -45,32 +56,13 @@ export default function OrderMap({ pickupCoords, deliveryCoords, courierLocation
 }
 
 const styles = StyleSheet.create({
-  container: {
-    height: 200,
-    marginHorizontal: 20,
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  map: {
-    flex: 1,
-  },
+  container: { height: '30%', position: 'relative' },
+  map: { flex: 1 },
   fallback: {
-    height: 200,
-    marginHorizontal: 20,
-    borderRadius: 12,
+    height: '30%',
     backgroundColor: '#F9FAFB',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
   },
-  fallbackText: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 14,
-    color: '#6B7280',
-  },
+  fallbackText: { fontFamily: 'Inter_400Regular', fontSize: 14, color: '#6B7280' },
 });

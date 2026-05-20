@@ -1,13 +1,13 @@
 // app/(tabs)/_layout.tsx
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { Platform, View, StyleSheet } from 'react-native';
+import { Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useAuth } from '@/hooks/use-auth';
 import { Redirect } from 'expo-router';
 
 export default function TabLayout() {
-  const { user, loading } = useAuth();
+  const { user, profile, loading } = useAuth(); // ← añadir profile
 
   if (loading) return null;
   if (!user) return <Redirect href="/auth/login" />;
@@ -22,7 +22,6 @@ export default function TabLayout() {
           backgroundColor: '#FFFFFF',
           borderTopColor: '#E5E7EB',
           borderTopWidth: 1,
-          // Usamos paddingBottom dinámico para evitar que quede pegado al borde
           paddingBottom: Platform.OS === 'ios' ? 20 : 10,
           paddingTop: 10,
           height: Platform.OS === 'ios' ? 85 : 65,
@@ -64,13 +63,24 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => <Feather name="user" size={size} color={color} />,
         }}
       />
-      {/* Pantallas ocultas: no aparecen en la barra */}
+
+      {/* Pestaña Admin – solo visible para el rol admin */}
+      {profile?.role === 'admin' && (
+        <Tabs.Screen
+          name="admin"
+          options={{
+            title: 'Admin',
+            tabBarIcon: ({ color, size }) => <Feather name="shield" size={size} color={color} />,
+          }}
+        />
+      )}
+
+      {/* Pantallas ocultas */}
       <Tabs.Screen name="rate" options={{ href: null, headerShown: false }} />
       <Tabs.Screen name="chat" options={{ href: null, headerShown: false }} />
       <Tabs.Screen name="new-order" options={{ href: null, headerShown: false }} />
       <Tabs.Screen name="select-courier" options={{ href: null, headerShown: false }} />
       <Tabs.Screen name="order-detail" options={{ href: null, headerShown: false }} />
-      {/* edit-profile ya no se usa, la hemos eliminado */}
     </Tabs>
   );
 }

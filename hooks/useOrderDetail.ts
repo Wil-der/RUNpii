@@ -44,6 +44,7 @@ export function useOrderDetail(orderId: string | undefined) {
     if (!orderId) return;
     setLoading(true);
     try {
+      // 1. Obtener todos los datos del pedido
       const { data, error } = await supabase
         .from('orders')
         .select('*')
@@ -52,6 +53,7 @@ export function useOrderDetail(orderId: string | undefined) {
 
       if (error || !data) throw new Error('No se pudo cargar el pedido');
 
+      // 2. Obtener coordenadas limpias de la función helper
       const { data: coordsData } = await supabase
         .rpc('get_order_for_map', { p_order_id: orderId });
 
@@ -69,6 +71,7 @@ export function useOrderDetail(orderId: string | undefined) {
         };
       }
 
+      // 3. Construir el objeto de orden con las coordenadas transformadas
       const orderData: OrderData = {
         id: data.id,
         status: data.status,
@@ -91,46 +94,30 @@ export function useOrderDetail(orderId: string | undefined) {
 
       setOrder(orderData);
 
+      // 4. Obtener ubicación del mensajero si está asignado y en ruta
       if (data.courier_id && ['assigned', 'picked_up', 'in_transit'].includes(data.status)) {
-        const { data: loc } = await supabase
-          .from('courier_locations')
-          .select('location')
-          .eq('courier_id', data.courier_id)
-          .order('timestamp', { ascending: false })
-          .limit(1)
-          .single();
+        const { data: locData, error: locError } = await supabase
+          .rpc('get_courier_location', { p_courier_id: data.courier_id });
 
-        if (loc?.location) {
-          const raw = loc.location;
-          if (typeof raw === 'object' && Array.isArray(raw.coordinates)) {
-            setCourierLocation({
-              latitude: raw.coordinates[1],
-              longitude: raw.coordinates[0],
-            });
-          } else if (typeof raw === 'string') {
-            const match = raw.match(/POINT\s*\(?\s*([-\d.]+)\s+([-\d.]+)\s*\)?/i);
-            if (match) {
-              setCourierLocation({
-                latitude: parseFloat(match[2]),
-                longitude: parseFloat(match[1]),
-              });
-            }
-          }
+        if (!locError && locData && locData.length > 0) {
+          setCourierLocation({
+            latitude: locData[0].courier_lat,
+            longitude: locData[0].courier_lng,
+          });
+        } else {
+          setCourierLocation(null);
         }
       } else {
         setCourierLocation(null);
       }
     } catch (error: any) {
-      showModal({
-        title: 'Error',
-        message: error.message,
-        type: 'info',
-      });
+      showModal({ title: 'Error', message: error.message, type: 'info' });
     } finally {
       setLoading(false);
     }
   }, [orderId]);
 
+  // Suscripción a cambios en tiempo real
   useEffect(() => {
     if (!orderId) return;
     loadOrder();
@@ -139,9 +126,14 @@ export function useOrderDetail(orderId: string | undefined) {
       .channel(`order-${orderId}`)
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${orderId}` },
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'orders',
+          filter: `id=eq.${orderId}`,
+        },
         () => {
-          loadOrder();
+          loadOrder(); // recarga completa para mantener las coordenadas correctas
         }
       )
       .subscribe();
@@ -151,6 +143,7 @@ export function useOrderDetail(orderId: string | undefined) {
     };
   }, [orderId, loadOrder]);
 
+  // Acciones genéricas sobre el pedido
   const handleAction = async (action: string, extraBody?: any) => {
     setActionLoading(action);
     try {
@@ -160,11 +153,7 @@ export function useOrderDetail(orderId: string | undefined) {
       if (error) throw new Error(error.message);
       await loadOrder();
     } catch (error: any) {
-      showModal({
-        title: 'Error',
-        message: error.message,
-        type: 'info',
-      });
+      showModal({ title: 'Error', message: error.message, type: 'info' });
     } finally {
       setActionLoading(null);
     }
@@ -173,17 +162,13 @@ export function useOrderDetail(orderId: string | undefined) {
   const acceptOrder = () => handleAction('accept-order');
   const rejectOrder = () => handleAction('reject-order');
   const confirmPickup = () => handleAction('confirm-pickup');
-  const confirmDelivery = (code: string) => {
-    if (!code.trim()) {
-      showModal({
-        title: 'Código requerido',
-        message: 'Ingresa el código de verificación del destinatario.',
-        type: 'info',
-      });
-      return;
-    }
-    handleAction('confirm-delivery', { verification_code: code.trim() });
-  };
+  const confirmDelivery = (code: string, photoBase64?: string) => {
+  if (!code.trim()) {
+    showModal({ title: 'Código requerido', message: 'Ingresa el código de verificación del destinatario.', type: 'info' });
+    return;
+  }
+  handleAction('confirm-delivery', { verification_code: code.trim(), photo_base64: photoBase64 || null });
+};
   const initiateReturn = () =>
     handleAction('initiate-return', { reason: 'No se pudo entregar' });
 
@@ -194,17 +179,13 @@ export function useOrderDetail(orderId: string | undefined) {
       type: 'confirm',
       confirmText: 'Sí, cancelar',
       cancelText: 'No',
-      onConfirm: () =>
-        handleAction('cancel-order', { cancel_reason: 'Cancelado por el cliente' }),
+      onConfirm: () => handleAction('cancel-order', { cancel_reason: 'Cancelado por el cliente' }),
     });
   };
 
   const searchCouriers = useCallback(() => {
     if (orderId) {
-      router.push({
-        pathname: '/(tabs)/select-courier',
-        params: { order_id: orderId },
-      });
+      router.push({ pathname: '/(tabs)/select-courier', params: { order_id: orderId } });
     }
   }, [orderId, router]);
 

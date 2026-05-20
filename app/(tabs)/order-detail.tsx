@@ -11,6 +11,8 @@ import {
   TextInput,
   Image,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useOrderDetail } from '@/hooks/useOrderDetail';
@@ -43,6 +45,10 @@ export default function OrderDetailScreen() {
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
   const [hasRated, setHasRated] = useState(false);
+
+  // Estados para la foto de entrega
+  const [deliveryPhotoUri, setDeliveryPhotoUri] = useState<string | null>(null);
+  const [deliveryPhotoBase64, setDeliveryPhotoBase64] = useState<string | null>(null);
 
   // Verificar si el usuario ya valoró este pedido (para estados finalizados)
   useEffect(() => {
@@ -89,7 +95,6 @@ export default function OrderDetailScreen() {
       primaryChips.push({ key: 'search', label: 'Buscar mensajeros', icon: 'search', color: '#F7C925', onPress: searchCouriers });
     }
 
-    // Chat: visible para cliente y mensajero cuando el pedido ya está asignado
     if ((isCustomer || isCourier) && ['assigned', 'picked_up', 'in_transit'].includes(status)) {
       primaryChips.push({
         key: 'chat',
@@ -100,7 +105,6 @@ export default function OrderDetailScreen() {
       });
     }
 
-    // Valorar al otro participante (pedido entregado o devuelto, y aún sin valorar)
     if ((isCustomer || isCourier) && ['delivered', 'returned'].includes(status) && !hasRated) {
       const otherUserId =
         profile?.id === order.customer_id
@@ -121,7 +125,6 @@ export default function OrderDetailScreen() {
     }
   }
 
-  // Acciones destructivas (Rechazar, Cancelar) – al final
   const destructiveActions: { key: string; label: string; icon: keyof typeof Feather.glyphMap; onPress: () => void }[] = [];
   if (order) {
     if (isCourier && status === 'awaiting_courier' && isAssignedToMe) {
@@ -146,10 +149,53 @@ export default function OrderDetailScreen() {
     }
   }
 
+  const handleTakePhoto = async () => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      showModal({ title: 'Permiso denegado', message: 'Se necesita acceso a la cámara.', type: 'info' });
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
+    if (result.canceled || !result.assets[0]) return;
+
+    const uri = result.assets[0].uri;
+    setDeliveryPhotoUri(uri);
+
+    // Convertir a base64 para enviar a la Edge Function
+    const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+    setDeliveryPhotoBase64(base64);
+  };
+
+  const handlePickGallery = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      showModal({ title: 'Permiso denegado', message: 'Se necesita acceso a la galería.', type: 'info' });
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
+    if (result.canceled || !result.assets[0]) return;
+
+    const uri = result.assets[0].uri;
+    setDeliveryPhotoUri(uri);
+
+    const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+    setDeliveryPhotoBase64(base64);
+  };
+
   const handleDelivery = () => {
-    confirmDelivery(verificationCode);
+    if (!verificationCode.trim()) {
+      showModal({ title: 'Código requerido', message: 'Ingresa el código de verificación del destinatario.', type: 'info' });
+      return;
+    }
+    if (!deliveryPhotoBase64) {
+      showModal({ title: 'Foto requerida', message: 'Debes tomar una foto del comprobante de entrega.', type: 'info' });
+      return;
+    }
+    confirmDelivery(verificationCode, deliveryPhotoBase64);
     setShowDeliveryModal(false);
     setVerificationCode('');
+    setDeliveryPhotoUri(null);
+    setDeliveryPhotoBase64(null);
   };
 
   if (loading) {
@@ -170,14 +216,12 @@ export default function OrderDetailScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Mapa (ancho completo, sin bordes redondeados) */}
       <OrderMap
         pickupCoords={order.pickup_location}
         deliveryCoords={order.delivery_location}
         courierLocation={courierLocation}
       />
 
-      {/* Cabecera sin botón de refrescar */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.replace('/(tabs)/explore')}>
           <Feather name="arrow-left" size={22} color="#F7C925" />
@@ -186,7 +230,6 @@ export default function OrderDetailScreen() {
         <View style={{ width: 22 }} />
       </View>
 
-      {/* Chips de acción principales (horizontal con scroll) */}
       {primaryChips.length > 0 && (
         <ScrollView
           horizontal
@@ -208,13 +251,11 @@ export default function OrderDetailScreen() {
         </ScrollView>
       )}
 
-      {/* Contenido principal (scroll vertical con pull‑to‑refresh) */}
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={styles.contentScroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#F7C925" />}
       >
-        {/* Detalles colapsables */}
         <TouchableOpacity
           style={styles.detailsToggle}
           onPress={() => setDetailsExpanded(!detailsExpanded)}
@@ -260,15 +301,14 @@ export default function OrderDetailScreen() {
           </View>
         )}
 
-        {/* Código de verificación */}
-        {((isCourier && isAssignedToMe) || order.recipient_id === profile?.id) && order.status === 'picked_up' && order.verification_code && (
+        {/* Código de verificación – visible SOLO para el destinatario (y NO para el mensajero del pedido) */}
+        {order.recipient_id === profile?.id && order.courier_id !== profile?.id && order.status === 'picked_up' && order.verification_code && (
           <View style={styles.codeCard}>
             <Text style={styles.codeLabel}>Código de verificación</Text>
             <Text style={styles.codeValue}>{order.verification_code}</Text>
           </View>
         )}
 
-        {/* Foto de entrega */}
         {order.delivery_photo_url && (
           <View style={styles.photoCard}>
             <Text style={styles.sectionTitle}>Comprobante de entrega</Text>
@@ -276,7 +316,6 @@ export default function OrderDetailScreen() {
           </View>
         )}
 
-        {/* Acciones destructivas al final */}
         {destructiveActions.length > 0 && (
           <View style={styles.destructiveContainer}>
             {destructiveActions.map((action) => (
@@ -294,25 +333,51 @@ export default function OrderDetailScreen() {
         )}
       </ScrollView>
 
-      {/* Modal de código de entrega */}
+      {/* Modal de entrega mejorado: foto + código */}
       {showDeliveryModal && (
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Código de verificación</Text>
-            <TextInput
-              style={styles.codeInput}
-              value={verificationCode}
-              onChangeText={setVerificationCode}
-              placeholder="000000"
-              keyboardType="number-pad"
-              maxLength={6}
-              autoFocus
-            />
+            <Text style={styles.modalTitle}>Confirmar entrega</Text>
+
+            {/* Paso 1: tomar foto */}
+            {!deliveryPhotoUri ? (
+              <View style={styles.photoStep}>
+                <TouchableOpacity style={styles.photoButton} onPress={handleTakePhoto}>
+                  <Feather name="camera" size={32} color="#F7C925" />
+                  <Text style={styles.photoButtonText}>Tomar foto</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.photoButton} onPress={handlePickGallery}>
+                  <Feather name="image" size={32} color="#F7C925" />
+                  <Text style={styles.photoButtonText}>Galería</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.photoStep}>
+                <Image source={{ uri: deliveryPhotoUri }} style={styles.photoPreview} />
+                <TouchableOpacity onPress={() => { setDeliveryPhotoUri(null); setDeliveryPhotoBase64(null); }}>
+                  <Text style={{ color: '#EF4444', fontFamily: 'Inter_500Medium', marginTop: 8 }}>Eliminar foto</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Paso 2: código de verificación (solo visible si ya hay foto) */}
+            {deliveryPhotoUri && (
+              <TextInput
+                style={styles.codeInput}
+                value={verificationCode}
+                onChangeText={setVerificationCode}
+                placeholder="Código de 6 dígitos"
+                keyboardType="number-pad"
+                maxLength={6}
+                autoFocus
+              />
+            )}
+
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={[styles.modalButton, { backgroundColor: '#F7C925' }]}
                 onPress={handleDelivery}
-                disabled={actionLoading !== null}
+                disabled={actionLoading !== null || !deliveryPhotoUri}
               >
                 {actionLoading ? (
                   <ActivityIndicator color="#1A1A1A" />
@@ -322,7 +387,12 @@ export default function OrderDetailScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalButton, { backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB' }]}
-                onPress={() => setShowDeliveryModal(false)}
+                onPress={() => {
+                  setShowDeliveryModal(false);
+                  setDeliveryPhotoUri(null);
+                  setDeliveryPhotoBase64(null);
+                  setVerificationCode('');
+                }}
               >
                 <Text style={[styles.modalButtonText, { color: '#6B7280' }]}>Cancelar</Text>
               </TouchableOpacity>
@@ -462,7 +532,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 24,
     width: '100%',
-    maxWidth: 340,
+    maxWidth: 380,
     alignItems: 'center',
   },
   modalTitle: {
@@ -471,6 +541,21 @@ const styles = StyleSheet.create({
     color: '#1A1A1A',
     marginBottom: 16,
   },
+  photoStep: { alignItems: 'center', marginBottom: 16 },
+  photoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    marginBottom: 8,
+    gap: 8,
+    width: '100%',
+    justifyContent: 'center',
+  },
+  photoButtonText: { fontFamily: 'Inter_500Medium', fontSize: 16, color: '#F7C925' },
+  photoPreview: { width: 200, height: 200, borderRadius: 8, marginBottom: 8 },
   codeInput: {
     backgroundColor: '#F9FAFB',
     borderWidth: 1,
