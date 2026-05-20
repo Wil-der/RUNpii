@@ -1,6 +1,5 @@
 ## 📄 `documentacion/flujos-de-negocio.md`
 
-```markdown
 # Flujos de negocio
 
 **Última actualización:** 2026-05-19
