@@ -49,6 +49,15 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="active-chats"
+        options={{
+          title: 'Chats',
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="message-circle" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'Perfil',
@@ -56,6 +65,8 @@ export default function TabLayout() {
         }}
       />
       {/* Pantallas ocultas: no aparecen en la barra */}
+      <Tabs.Screen name="rate" options={{ href: null, headerShown: false }} />
+      <Tabs.Screen name="chat" options={{ href: null, headerShown: false }} />
       <Tabs.Screen name="new-order" options={{ href: null, headerShown: false }} />
       <Tabs.Screen name="select-courier" options={{ href: null, headerShown: false }} />
       <Tabs.Screen name="order-detail" options={{ href: null, headerShown: false }} />

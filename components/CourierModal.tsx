@@ -19,12 +19,12 @@ export default function CourierModal({ visible, courier, totalDistance, loading,
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
         <View style={styles.container}>
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
             <View style={styles.header}>
               <Feather name="user" size={48} color="#F7C925" />
               <Text style={styles.name}>{courier.full_name}</Text>
               <Text style={styles.rating}>
-                ⭐ {courier.rating_average?.toFixed(1)} ({courier.total_ratings}) · {courier.vehicle_type}
+                {courier.rating_average?.toFixed(1)} ({courier.total_ratings}) · {courier.vehicle_type}
               </Text>
             </View>
 
@@ -59,7 +59,7 @@ export default function CourierModal({ visible, courier, totalDistance, loading,
 
             <View style={styles.actions}>
               <TouchableOpacity
-                style={[styles.selectButton, loading && { opacity: 0.6 }]}
+                style={[styles.selectButton, loading && styles.buttonDisabled]}
                 onPress={() => onSelect(courier.courier_id)}
                 disabled={loading}
               >
@@ -88,17 +88,47 @@ const styles = StyleSheet.create({
   },
   container: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 20,
-    maxHeight: '80%',
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+    padding: 16,
+    maxHeight: '85%',
   },
-  header: { alignItems: 'center', marginBottom: 20 },
-  name: { fontFamily: 'Inter_700Bold', fontSize: 22, color: '#1A1A1A', marginTop: 12 },
-  rating: { fontFamily: 'Inter_400Regular', fontSize: 14, color: '#6B7280', marginTop: 4 },
-  details: { marginBottom: 20 },
-  row: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 },
-  detailText: { fontFamily: 'Inter_400Regular', fontSize: 14, color: '#6B7280', flexShrink: 1 },
+  scrollContent: {
+    paddingBottom: 16,
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  name: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 22,
+    color: '#1A1A1A',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  rating: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  details: {
+    marginBottom: 20,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 10,
+  },
+  detailText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 14,
+    color: '#6B7280',
+    flexShrink: 1,
+  },
   priceSection: {
     backgroundColor: '#F7C92515',
     borderRadius: 12,
@@ -106,17 +136,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 20,
   },
-  priceLabel: { fontFamily: 'Inter_400Regular', fontSize: 14, color: '#1A1A1A' },
-  priceValue: { fontFamily: 'Inter_700Bold', fontSize: 28, color: '#F7C925', marginTop: 4 },
-  priceCalc: { fontFamily: 'Inter_400Regular', fontSize: 13, color: '#6B7280', marginTop: 4 },
-  actions: { gap: 12 },
+  priceLabel: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 14,
+    color: '#1A1A1A',
+  },
+  priceValue: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 28,
+    color: '#F7C925',
+    marginTop: 4,
+  },
+  priceCalc: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  actions: {
+    gap: 12,
+  },
   selectButton: {
     backgroundColor: '#F7C925',
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',
   },
-  selectButtonText: { fontFamily: 'Inter_600SemiBold', fontSize: 16, color: '#1A1A1A' },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  selectButtonText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 16,
+    color: '#1A1A1A',
+  },
   cancelButton: {
     backgroundColor: '#F9FAFB',
     borderRadius: 12,
@@ -125,5 +178,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
-  cancelButtonText: { fontFamily: 'Inter_600SemiBold', fontSize: 16, color: '#6B7280' },
+  cancelButtonText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 16,
+    color: '#6B7280',
+  },
 });

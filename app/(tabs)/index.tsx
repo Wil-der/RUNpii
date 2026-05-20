@@ -1,56 +1,75 @@
 // app/(tabs)/index.tsx
-import { StyleSheet, View, Pressable, Text, Image } from 'react-native';
-import { Link } from 'expo-router';
+import { StyleSheet, View, Text, Image, TouchableOpacity } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useAuth } from '@/hooks/use-auth';
 
 export default function HomeScreen() {
-  const { user, profile } = useAuth();
+  const { profile, user } = useAuth();
+  const router = useRouter();
 
   return (
     <View style={styles.container}>
-      {/* Cabecera con saludo */}
+      {/* Cabecera integrada */}
       <View style={styles.header}>
-        <View>
-          <Feather name="package" size={28} color="#F7C925" style={{ marginBottom: 8 }} />
+        <TouchableOpacity onPress={() => router.push('/(tabs)/profile')}>
+          <View style={styles.avatarContainer}>
+            {profile?.avatar_url ? (
+              <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
+            ) : (
+              <Feather name="user" size={28} color="#999" />
+            )}
+          </View>
+        </TouchableOpacity>
+        <View style={styles.headerInfo}>
           <Text style={styles.greeting}>
-            ¡Hola{profile?.full_name ? `, ${profile.full_name.split(' ')[0]}` : ''}!
+            {profile?.full_name?.split(' ')[0] || 'Usuario'}
           </Text>
           <Text style={styles.subtitle}>
-            {profile?.role === 'courier' ? 'Gestiona tus entregas' : 'Envía o recibe paquetes fácilmente'}
+            {profile?.role === 'courier' ? 'Mensajero' : 'Cliente'}
           </Text>
         </View>
-        {/* Avatar pequeño (opcional) */}
-        {profile?.avatar_url && (
-          <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
-        )}
       </View>
 
       {/* Accesos rápidos */}
       <View style={styles.quickActions}>
-        <Link href="/(tabs)/explore" asChild>
-          <Pressable style={styles.actionCard}>
-            <Feather name="package" size={32} color="#F7C925" />
-            <Text style={styles.actionTitle}>Mis Pedidos</Text>
+        <TouchableOpacity
+          style={styles.actionCard}
+          onPress={() => router.push('/(tabs)/explore')}
+          activeOpacity={0.7}
+        >
+          <View style={styles.actionIconContainer}>
+            <Feather name="package" size={28} color="#F7C925" />
+          </View>
+          <View style={styles.actionTextContainer}>
+            <Text style={styles.actionTitle}>Pedidos</Text>
             <Text style={styles.actionDesc}>
               {profile?.role === 'courier'
-                ? 'Ver pedidos activos y pendientes'
-                : 'Historial de envíos y estado actual'}
+                ? 'Gestiona tus entregas activas'
+                : 'Historial y estado de envíos'}
             </Text>
-          </Pressable>
-        </Link>
+          </View>
+          <Feather name="chevron-right" size={20} color="#6B7280" />
+        </TouchableOpacity>
 
-        <Link href="/(tabs)/profile" asChild>
-          <Pressable style={styles.actionCard}>
-            <Feather name="user" size={32} color="#F7C925" />
-            <Text style={styles.actionTitle}>Mi Perfil</Text>
+        <TouchableOpacity
+          style={styles.actionCard}
+          onPress={() => router.push('/(tabs)/profile')}
+          activeOpacity={0.7}
+        >
+          <View style={styles.actionIconContainer}>
+            <Feather name="settings" size={28} color="#F7C925" />
+          </View>
+          <View style={styles.actionTextContainer}>
+            <Text style={styles.actionTitle}>Perfil</Text>
             <Text style={styles.actionDesc}>
               {profile?.role === 'courier'
-                ? 'Gestiona tu disponibilidad y datos'
-                : 'Administra tu información personal'}
+                ? 'Disponibilidad y documentos'
+                : 'Información personal'}
             </Text>
-          </Pressable>
-        </Link>
+          </View>
+          <Feather name="chevron-right" size={20} color="#6B7280" />
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -60,52 +79,78 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 20,
-    paddingTop: 60,
+    paddingHorizontal: 16,
+    paddingTop: 48,
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 32,
+  },
+  avatarContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#F9FAFB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#F7C925',
+  },
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
+  headerInfo: {
+    marginLeft: 14,
   },
   greeting: {
     fontFamily: 'Inter_700Bold',
-    fontSize: 28,
+    fontSize: 22,
     color: '#1A1A1A',
-    marginBottom: 4,
   },
   subtitle: {
     fontFamily: 'Inter_400Regular',
-    fontSize: 16,
+    fontSize: 14,
     color: '#6B7280',
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    marginTop: 2,
   },
   quickActions: {
-    gap: 16,
+    gap: 12,
   },
   actionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#F9FAFB',
     borderRadius: 12,
-    padding: 20,
+    padding: 16,
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
+  actionIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  actionTextContainer: {
+    flex: 1,
+    marginLeft: 12,
+  },
   actionTitle: {
     fontFamily: 'Inter_600SemiBold',
-    fontSize: 18,
+    fontSize: 16,
     color: '#1A1A1A',
-    marginTop: 12,
-    marginBottom: 4,
   },
   actionDesc: {
     fontFamily: 'Inter_400Regular',
-    fontSize: 14,
+    fontSize: 13,
     color: '#6B7280',
+    marginTop: 2,
   },
-  // Faltaba el import de Text e Image, lo agrego
 });

@@ -1,8 +1,7 @@
 // app/auth/login.tsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   StyleSheet,
   Text,
@@ -10,18 +9,40 @@ import {
   View,
   KeyboardAvoidingView,
   Platform,
+  Switch,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Feather } from '@expo/vector-icons';
+import { useAppModal } from '@/contexts/ModalContext';
+
+const REMEMBER_KEY = '@runpii_remember';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const router = useRouter();
+  const { showModal } = useAppModal();
+
+  // Cargar credenciales guardadas al montar
+  useEffect(() => {
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(REMEMBER_KEY);
+        if (stored) {
+          const { email: savedEmail, password: savedPassword } = JSON.parse(stored);
+          setEmail(savedEmail || '');
+          setPassword(savedPassword || '');
+          setRememberMe(true);
+        }
+      } catch {}
+    })();
+  }, []);
 
   const validate = () => {
     let valid = true;
@@ -52,8 +73,24 @@ export default function LoginScreen() {
     setLoading(false);
 
     if (error) {
-      Alert.alert('Error de inicio de sesión', error.message);
-    } else if (data.user && !data.user.email_confirmed_at) {
+      showModal({
+        title: 'Error de inicio de sesión',
+        message: error.message,
+        type: 'info',
+      });
+      return;
+    }
+
+    // Guardar o limpiar credenciales según "Recuérdame"
+    try {
+      if (rememberMe) {
+        await AsyncStorage.setItem(REMEMBER_KEY, JSON.stringify({ email, password }));
+      } else {
+        await AsyncStorage.removeItem(REMEMBER_KEY);
+      }
+    } catch {}
+
+    if (data.user && !data.user.email_confirmed_at) {
       router.replace('/auth/verify-email');
     } else {
       router.replace('/(tabs)');
@@ -63,7 +100,8 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
     >
       <View style={styles.inner}>
         {/* Botón para volver a la landing */}
@@ -114,6 +152,17 @@ export default function LoginScreen() {
           </View>
           {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
 
+          {/* Recuérdame */}
+          <View style={styles.rememberRow}>
+            <Switch
+              value={rememberMe}
+              onValueChange={setRememberMe}
+              trackColor={{ false: '#ccc', true: '#F7C925' }}
+              thumbColor={rememberMe ? '#FFF' : '#FFF'}
+            />
+            <Text style={styles.rememberText}>Recuérdame</Text>
+          </View>
+
           {/* Botón de inicio de sesión */}
           <Pressable
             style={[styles.primaryButton, loading && styles.primaryButtonDisabled]}
@@ -127,6 +176,10 @@ export default function LoginScreen() {
             )}
           </Pressable>
         </View>
+
+        <Pressable onPress={() => router.push('/auth/forgot-password')}>
+          <Text style={styles.linkText}>¿Olvidaste tu contraseña?</Text>
+        </Pressable>
 
         {/* Enlace a registro */}
         <Pressable onPress={() => router.push('/auth/register')}>
@@ -206,6 +259,16 @@ const styles = StyleSheet.create({
     marginTop: -8,
     marginLeft: 4,
   },
+  rememberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  rememberText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 14,
+    color: '#6B7280',
+  },
   primaryButton: {
     backgroundColor: '#F7C925',
     borderRadius: 12,
@@ -230,6 +293,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
     textAlign: 'center',
+    marginTop: 12,
   },
   linkHighlight: {
     color: '#F7C925',

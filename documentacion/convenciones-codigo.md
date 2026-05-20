@@ -51,6 +51,17 @@ Seguir [Conventional Commits](https://www.conventionalcommits.org/):
 - `fix: corregido cálculo de distancia`
 - `docs: actualizada guía de desarrollo`
 
+## Convenciones específicas del proyecto
+
+- **Notificaciones al usuario**: utilizar el hook `useAppModal` (basado en contexto) en lugar de `Alert.alert` para mantener la coherencia visual.
+- **Modularización**: cada pantalla sigue el patrón `hook (lógica) + componentes (UI)`. Los hooks se nombran con prefijo `use` y residen en `/hooks`.
+- **Compresión de imágenes**: antes de subir a Supabase Storage, se usa `expo-image-manipulator` con los siguientes parámetros:
+  - Avatar: 512 px, calidad 0.7
+  - Documentos: 2048 px, calidad 0.8
+  - Chat: 1024 px, calidad 0.7
+  - Foto de entrega: 1280 px, calidad 0.75
+- **Realtime**: las suscripciones de Supabase se crean en los hooks correspondientes y se cancelan en el cleanup del `useEffect`.
+
 ## Pruebas
 
 (Agregar cuando se implementen tests)

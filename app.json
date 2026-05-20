@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "runpii-app",
-    "slug": "runpii-app",
+    "name": "RUNpii",
+    "slug": "RUNpii",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",

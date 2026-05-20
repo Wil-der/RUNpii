@@ -7,7 +7,6 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  Alert,
   ActivityIndicator,
   Switch,
   KeyboardAvoidingView,
@@ -19,6 +18,7 @@ import { Feather } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'expo-router';
+import { useAppModal } from '@/contexts/ModalContext';
 
 // ---- Geocodificación alternativa con Nominatim (OpenStreetMap) ----
 const nominatimReverse = async (lat: number, lng: number): Promise<string | null> => {
@@ -53,11 +53,11 @@ const getAddressFromCoords = async (lat: number, lng: number, fallback: string):
 export default function NewOrderScreen() {
   const { profile } = useAuth();
   const router = useRouter();
+  const { showModal } = useAppModal();
 
-  // Solo clientes pueden crear pedidos
   useEffect(() => {
     if (profile && profile.role !== 'customer') {
-      Alert.alert('Solo clientes', 'Debes iniciar sesión como cliente para crear un pedido.');
+      showModal({ title: 'Solo clientes', message: 'Debes iniciar sesión como cliente para crear un pedido.', type: 'info' });
       router.back();
     }
   }, [profile]);
@@ -77,17 +77,17 @@ export default function NewOrderScreen() {
 
   const packageSizes = ['small', 'medium', 'large', 'extra_large'] as const;
   const packageSizeLabels: Record<string, string> = {
-    small: '📦 Pequeño',
-    medium: '📦 Mediano',
-    large: '📦 Grande',
-    extra_large: '📦 Extra Grande',
+    small: 'Pequeño',
+    medium: 'Mediano',
+    large: 'Grande',
+    extra_large: 'Extra grande',
   };
 
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permiso denegado', 'Se necesita acceso a la ubicación para establecer el punto de recogida.');
+        showModal({ title: 'Permiso denegado', message: 'Se necesita acceso a la ubicación.', type: 'info' });
         return;
       }
       const loc = await Location.getCurrentPositionAsync({});
@@ -115,45 +115,38 @@ export default function NewOrderScreen() {
 
   const handleCreateOrder = async () => {
     if (!pickupCoords || !deliveryCoords) {
-      Alert.alert('Error', 'Selecciona el punto de recogida y el de entrega en el mapa.');
+      showModal({ title: 'Error', message: 'Selecciona los puntos de recogida y entrega.', type: 'info' });
       return;
     }
     if (!recipientEmail.trim()) {
-      Alert.alert('Error', 'El email del destinatario es obligatorio.');
+      showModal({ title: 'Error', message: 'El email del destinatario es obligatorio.', type: 'info' });
       return;
     }
 
     setIsLoading(true);
-
     try {
-      // Buscar destinatario con timeout
-      const rpcPromise = supabase.rpc('get_user_id_by_email', {
-        user_email: recipientEmail.trim().toLowerCase(),
-      });
+      const rpcPromise = supabase.rpc('get_user_id_by_email', { user_email: recipientEmail.trim().toLowerCase() });
       const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 10000));
       const result = await Promise.race([rpcPromise, timeoutPromise]);
 
       if (!result || !result.data) {
-        Alert.alert('Error', 'No se encontró un usuario con ese email o el email no está verificado.');
+        showModal({ title: 'Error', message: 'Email no encontrado o no verificado.', type: 'info' });
         setIsLoading(false);
         return;
       }
       const recipientId = result.data;
 
-      // Verificar perfil del destinatario
       const { data: recipientProfile, error: profileError } = await supabase
         .from('public_profiles')
         .select('id')
         .eq('id', recipientId)
         .single();
-
       if (profileError || !recipientProfile) {
-        Alert.alert('Error', 'El usuario no tiene perfil. Debe completar su registro en RUNpii.');
+        showModal({ title: 'Error', message: 'El destinatario no tiene perfil.', type: 'info' });
         setIsLoading(false);
         return;
       }
 
-      // Crear pedido con la función RPC
       const { data: orderId, error: createError } = await supabase.rpc('create_order', {
         p_customer_id: profile.id,
         p_recipient_id: recipientId,
@@ -171,27 +164,35 @@ export default function NewOrderScreen() {
       });
 
       if (createError) {
-        Alert.alert('Error', 'No se pudo crear el pedido: ' + createError.message);
+        showModal({ title: 'Error', message: 'No se pudo crear el pedido: ' + createError.message, type: 'info' });
         setIsLoading(false);
         return;
       }
 
-      router.replace({
-        pathname: '/(tabs)/select-courier',
-        params: { order_id: orderId },
-      });
+      router.replace({ pathname: '/(tabs)/select-courier', params: { order_id: orderId } });
     } catch (error: any) {
-      Alert.alert('Error', 'Ocurrió un problema al crear el pedido. Verifica tu conexión e inténtalo de nuevo.');
+      showModal({ title: 'Error', message: 'Ocurrió un problema al crear el pedido.', type: 'info' });
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Nuevo pedido</Text>
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: '#FFFFFF' }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <View style={{ flex: 1 }}>
+        {/* Cabecera fija */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <Feather name="arrow-left" size={22} color="#F7C925" />
+          </TouchableOpacity>
+          <Text style={styles.title}>Nuevo pedido</Text>
+          <View style={{ width: 22 }} />
+        </View>
 
+        {/* Mapa fijo al 30% */}
         <View style={styles.mapContainer}>
           {mapRegion ? (
             <MapView
@@ -212,57 +213,153 @@ export default function NewOrderScreen() {
           )}
         </View>
 
-        <Text style={styles.label}>Destinatario (email registrado)</Text>
-        <TextInput style={styles.input} value={recipientEmail} onChangeText={setRecipientEmail} placeholder="usuario@runpii.com" autoCapitalize="none" keyboardType="email-address" />
+        {/* Formulario con scroll */}
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.contentScroll}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.form}>
+            <Text style={styles.sectionTitle}>Destinatario</Text>
+            <TextInput
+              style={styles.input}
+              value={recipientEmail}
+              onChangeText={setRecipientEmail}
+              placeholder="Email registrado en RUNpii"
+              placeholderTextColor="#9CA3AF"
+              autoCapitalize="none"
+              keyboardType="email-address"
+            />
 
-        <Text style={styles.label}>Tamaño del paquete</Text>
-        <View style={styles.chipRow}>
-          {packageSizes.map(size => (
-            <TouchableOpacity key={size} style={[styles.chip, packageSize === size && styles.chipActive]} onPress={() => setPackageSize(size)}>
-              <Text style={[styles.chipText, packageSize === size && styles.chipTextActive]}>{packageSizeLabels[size]}</Text>
+            <Text style={styles.sectionTitle}>Tamaño del paquete</Text>
+            <View style={styles.chipRow}>
+              {packageSizes.map(size => (
+                <TouchableOpacity key={size} style={[styles.chip, packageSize === size && styles.chipActive]} onPress={() => setPackageSize(size)}>
+                  <Text style={[styles.chipText, packageSize === size && styles.chipTextActive]}>{packageSizeLabels[size]}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.row}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sectionTitle}>Peso (kg)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={weight}
+                  onChangeText={setWeight}
+                  keyboardType="numeric"
+                  placeholder="2.5"
+                  placeholderTextColor="#9CA3AF"
+                />
+              </View>
+              <View style={{ justifyContent: 'center', marginTop: 20 }}>
+                <Text style={styles.sectionTitle}>Frágil</Text>
+                <Switch
+                  value={isFragile}
+                  onValueChange={setIsFragile}
+                  trackColor={{ false: '#ccc', true: '#F7C925' }}
+                />
+              </View>
+            </View>
+
+            <Text style={styles.sectionTitle}>Descripción</Text>
+            <TextInput
+              style={styles.input}
+              value={description}
+              onChangeText={setDescription}
+              placeholder="Documentos, ropa..."
+              placeholderTextColor="#9CA3AF"
+            />
+
+            <Text style={styles.sectionTitle}>Instrucciones especiales</Text>
+            <TextInput
+              style={[styles.input, styles.multiline]}
+              value={specialInstructions}
+              onChangeText={setSpecialInstructions}
+              placeholder="Tocar timbre 3B..."
+              placeholderTextColor="#9CA3AF"
+              multiline
+              numberOfLines={3}
+            />
+
+            <TouchableOpacity
+              style={[styles.createButton, isLoading && styles.disabledButton]}
+              onPress={handleCreateOrder}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#1A1A1A" />
+              ) : (
+                <Text style={styles.createButtonText}>Crear pedido</Text>
+              )}
             </TouchableOpacity>
-          ))}
-        </View>
-
-        <Text style={styles.label}>Peso (kg, opcional)</Text>
-        <TextInput style={styles.input} value={weight} onChangeText={setWeight} keyboardType="numeric" placeholder="Ej: 2.5" />
-
-        <View style={styles.switchRow}>
-          <Text style={styles.label}>Frágil</Text>
-          <Switch value={isFragile} onValueChange={setIsFragile} trackColor={{ false: '#ccc', true: '#F7C925' }} />
-        </View>
-
-        <Text style={styles.label}>Descripción del contenido (opcional)</Text>
-        <TextInput style={styles.input} value={description} onChangeText={setDescription} placeholder="Ej: Documentos, ropa..." />
-
-        <Text style={styles.label}>Instrucciones especiales (opcional)</Text>
-        <TextInput style={[styles.input, styles.multiline]} value={specialInstructions} onChangeText={setSpecialInstructions} placeholder="Ej: tocar timbre 3B" multiline numberOfLines={3} />
-
-        <TouchableOpacity style={[styles.createButton, isLoading && styles.disabledButton]} onPress={handleCreateOrder} disabled={isLoading}>
-          {isLoading ? <ActivityIndicator color="#1A1A1A" /> : <Text style={styles.createButtonText}>Crear pedido</Text>}
-        </TouchableOpacity>
-      </ScrollView>
+          </View>
+        </ScrollView>
+      </View>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
-  content: { padding: 20, paddingTop: 40, paddingBottom: 40 },
-  title: { fontFamily: 'Inter_700Bold', fontSize: 24, color: '#1A1A1A', marginBottom: 20 },
-  mapContainer: { height: 250, borderRadius: 12, overflow: 'hidden', marginBottom: 20, borderWidth: 1, borderColor: '#E5E7EB' },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 48,
+    paddingBottom: 12,
+  },
+  title: { fontFamily: 'Inter_700Bold', fontSize: 20, color: '#1A1A1A' },
+  mapContainer: { height: '30%', position: 'relative' },
   map: { flex: 1 },
   mapLoader: { flex: 1, justifyContent: 'center' },
-  label: { fontFamily: 'Inter_600SemiBold', fontSize: 14, color: '#1A1A1A', marginBottom: 6, marginTop: 12 },
-  input: { backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 12, padding: 14, fontFamily: 'Inter_400Regular', fontSize: 16, color: '#1A1A1A' },
+  contentScroll: {
+    flexGrow: 1,
+    paddingBottom: 40,
+  },
+  form: { paddingHorizontal: 16, paddingTop: 12 },
+  sectionTitle: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 14,
+    color: '#1A1A1A',
+    marginBottom: 6,
+    marginTop: 12,
+  },
+  input: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    padding: 12,
+    fontFamily: 'Inter_400Regular',
+    fontSize: 15,
+    color: '#1A1A1A',
+  },
   multiline: { minHeight: 80 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
-  chip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: '#E5E7EB' },
+  row: { flexDirection: 'row', gap: 16, alignItems: 'flex-start' },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
+  },
   chipActive: { backgroundColor: '#F7C925', borderColor: '#F7C925' },
   chipText: { fontFamily: 'Inter_500Medium', fontSize: 14, color: '#6B7280' },
   chipTextActive: { color: '#1A1A1A' },
-  switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  createButton: { backgroundColor: '#F7C925', borderRadius: 12, padding: 18, alignItems: 'center', marginTop: 30 },
+  createButton: {
+    backgroundColor: '#F7C925',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    marginTop: 30,
+  },
   disabledButton: { opacity: 0.6 },
-  createButtonText: { fontFamily: 'Inter_600SemiBold', fontSize: 16, color: '#1A1A1A' },
+  createButtonText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 16,
+    color: '#1A1A1A',
+  },
 });

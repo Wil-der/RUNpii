@@ -76,9 +76,20 @@ Las Edge Functions se ejecutan con permisos de `service_role` cuando realizan op
 
 ## Configuración de Storage
 
-Los buckets privados (fotos de carnet, comprobantes de entrega) deben tener políticas que solo permitan acceso al dueño o bajo condiciones muy controladas. La documentación detallada de Storage se creará cuando se implemente, pero los nombres y reglas básicas son:
-- Bucket `id-cards`: solo el usuario autenticado puede subir sus propios archivos; un admin puede leer.
-- Bucket `delivery-photos`: solo el mensajero asignado puede subir, y los participantes del pedido pueden leer.
+Todos los buckets de almacenamiento tienen políticas RLS que controlan el acceso.
+
+| Bucket | SELECT | INSERT |
+|--------|--------|--------|
+| `avatars` | Cualquier autenticado | Solo el dueño |
+| `id_docs` | Dueño + Admin | Solo el dueño |
+| `delivery_photos` | Participantes del pedido + Admin | Solo el mensajero del pedido |
+| `chat_attachments` | Participantes del pedido | Participantes del pedido |
+
+Las políticas se implementan con subconsultas a las tablas `orders` y `profiles` para verificar pertenencia y roles.
+
+## Protección de documentos verificados
+
+Un trigger `prevent_verified_document_changes` en la tabla `profiles` rechaza cualquier `UPDATE` que intente modificar `id_card_number`, `id_card_front_url` o `id_card_back_url` cuando el campo `verification_status` es `'approved'`. Esto impide que un mensajero cambie sus documentos después de ser validado por un administrador.
 
 ## Buenas prácticas
 

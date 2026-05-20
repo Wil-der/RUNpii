@@ -11,10 +11,14 @@ RUNpii conecta remitentes, mensajeros verificados y destinatarios en una red de 
 
 ## Estado actual
 
+## Estado actual
+
 ✅ Base de datos completa y asegurada  
 ✅ Políticas RLS, triggers y vistas implementadas  
-⬜ Edge Functions – próximo paso  
-⬜ Frontend – por implementar  
+✅ Edge Functions completadas (ciclo de vida del pedido) con notificaciones push  
+✅ Frontend en React Native (Expo) implementado con autenticación, pedidos, chat, reputación y perfil  
+⬜ Notificaciones push reales (requiere build nativa)  
+⬜ Pagos con Stripe (futuro)  
 
 ## Documentación
 

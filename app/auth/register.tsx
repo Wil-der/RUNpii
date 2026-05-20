@@ -2,7 +2,6 @@
 import { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   StyleSheet,
   Text,
@@ -17,6 +16,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Feather } from '@expo/vector-icons';
+import { useAppModal } from '@/contexts/ModalContext';
 
 type Role = 'customer' | 'courier';
 
@@ -32,6 +32,7 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const router = useRouter();
+  const { showModal } = useAppModal();
 
   const pickAvatar = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -62,7 +63,6 @@ export default function RegisterScreen() {
     if (!validate()) return;
     setLoading(true);
 
-    // Metadatos que pasan al trigger on_auth_user_created
     const metadata: any = {
       full_name: fullName,
       role,
@@ -70,19 +70,13 @@ export default function RegisterScreen() {
       vehicle_type: vehicleType || null,
     };
 
-    // Subir avatar si se seleccionó
     if (avatarUri) {
       try {
         const response = await fetch(avatarUri);
         const blob = await response.blob();
         const arrayBuffer = await blob.arrayBuffer();
-        // El userId aún no lo tenemos, así que usamos un nombre temporal y luego lo renombraremos
-        // Mejor: no subir avatar en el registro, se hará en el perfil. Así que omitimos la subida aquí.
-        // metadata.avatar_url = ... // no podemos obtener la URL pública antes de registrarse.
-        // Posponemos avatar para después del registro.
       } catch (error) {
         console.error('Error uploading avatar:', error);
-        // Continuamos sin avatar
       }
     }
 
@@ -95,19 +89,15 @@ export default function RegisterScreen() {
     });
 
     if (error) {
-      Alert.alert('Error de registro', error.message);
+      showModal({ title: 'Error de registro', message: error.message, type: 'info' });
       setLoading(false);
       return;
     }
 
-    // Si el usuario se creó correctamente, redirigir a verificar email
     if (data.user) {
-      // Si había avatar seleccionado, podríamos subirlo aquí usando data.user.id
-      // Pero es más seguro hacerlo en la pantalla de perfil. Por ahora, simplemente redirigimos.
       router.replace('/auth/verify-email');
     } else {
-      // Esto no debería pasar
-      Alert.alert('Error', 'No se pudo crear el usuario');
+      showModal({ title: 'Error', message: 'No se pudo crear el usuario', type: 'info' });
     }
 
     setLoading(false);
@@ -116,9 +106,14 @@ export default function RegisterScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
     >
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
         <Pressable style={styles.backButton} onPress={() => router.back()}>
           <Feather name="arrow-left" size={24} color="#1A1A1A" />
         </Pressable>
@@ -140,6 +135,7 @@ export default function RegisterScreen() {
         </View>
 
         <View style={styles.form}>
+          {/* ... resto de campos (igual que antes) ... */}
           <View style={styles.inputWrapper}>
             <Feather name="user" size={20} color="#6B7280" style={styles.inputIcon} />
             <TextInput

@@ -1,9 +1,9 @@
 // hooks/useOrderDetail.ts
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { Alert } from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'expo-router';
+import { useAppModal } from '@/contexts/ModalContext';
 
 export interface OrderCoords {
   latitude: number;
@@ -33,18 +33,17 @@ export interface OrderData {
 export function useOrderDetail(orderId: string | undefined) {
   const { profile } = useAuth();
   const router = useRouter();
+  const { showModal } = useAppModal();
 
   const [order, setOrder] = useState<OrderData | null>(null);
   const [courierLocation, setCourierLocation] = useState<OrderCoords | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const prevStatusRef = useRef<string | null>(null);
 
   const loadOrder = useCallback(async () => {
     if (!orderId) return;
     setLoading(true);
     try {
-      // Obtener datos del pedido
       const { data, error } = await supabase
         .from('orders')
         .select('*')
@@ -53,7 +52,6 @@ export function useOrderDetail(orderId: string | undefined) {
 
       if (error || !data) throw new Error('No se pudo cargar el pedido');
 
-      // Obtener coordenadas limpias
       const { data: coordsData } = await supabase
         .rpc('get_order_for_map', { p_order_id: orderId });
 
@@ -93,7 +91,6 @@ export function useOrderDetail(orderId: string | undefined) {
 
       setOrder(orderData);
 
-      // Ubicación del mensajero si corresponde
       if (data.courier_id && ['assigned', 'picked_up', 'in_transit'].includes(data.status)) {
         const { data: loc } = await supabase
           .from('courier_locations')
@@ -124,13 +121,16 @@ export function useOrderDetail(orderId: string | undefined) {
         setCourierLocation(null);
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      showModal({
+        title: 'Error',
+        message: error.message,
+        type: 'info',
+      });
     } finally {
       setLoading(false);
     }
   }, [orderId]);
 
-  // Suscripción en tiempo real
   useEffect(() => {
     if (!orderId) return;
     loadOrder();
@@ -141,7 +141,7 @@ export function useOrderDetail(orderId: string | undefined) {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${orderId}` },
         () => {
-          loadOrder(); // recarga completa para mantener coordenadas
+          loadOrder();
         }
       )
       .subscribe();
@@ -151,22 +151,6 @@ export function useOrderDetail(orderId: string | undefined) {
     };
   }, [orderId, loadOrder]);
 
-  // Redirección automática si el pedido vuelve a pending (rechazo / expiración)
-  useEffect(() => {
-    if (order && prevStatusRef.current) {
-      if (
-        ['awaiting_courier', 'assigned'].includes(prevStatusRef.current) &&
-        order.status === 'pending' &&
-        profile?.role === 'customer'
-      ) {
-        // El pedido quedó sin mensajero; volver a la selección
-        router.replace({ pathname: '/(tabs)/select-courier', params: { order_id: order.id } });
-      }
-    }
-    prevStatusRef.current = order?.status ?? null;
-  }, [order?.status, order?.id]);
-
-  // Acciones genéricas
   const handleAction = async (action: string, extraBody?: any) => {
     setActionLoading(action);
     try {
@@ -176,7 +160,11 @@ export function useOrderDetail(orderId: string | undefined) {
       if (error) throw new Error(error.message);
       await loadOrder();
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      showModal({
+        title: 'Error',
+        message: error.message,
+        type: 'info',
+      });
     } finally {
       setActionLoading(null);
     }
@@ -187,22 +175,38 @@ export function useOrderDetail(orderId: string | undefined) {
   const confirmPickup = () => handleAction('confirm-pickup');
   const confirmDelivery = (code: string) => {
     if (!code.trim()) {
-      Alert.alert('Código requerido', 'Ingresa el código de verificación del destinatario');
+      showModal({
+        title: 'Código requerido',
+        message: 'Ingresa el código de verificación del destinatario.',
+        type: 'info',
+      });
       return;
     }
     handleAction('confirm-delivery', { verification_code: code.trim() });
   };
   const initiateReturn = () =>
     handleAction('initiate-return', { reason: 'No se pudo entregar' });
+
   const cancelOrder = () => {
-    Alert.alert('Cancelar pedido', '¿Seguro que deseas cancelar este pedido?', [
-      { text: 'No', style: 'cancel' },
-      {
-        text: 'Sí, cancelar',
-        onPress: () => handleAction('cancel-order', { cancel_reason: 'Cancelado por el cliente' }),
-      },
-    ]);
+    showModal({
+      title: 'Cancelar pedido',
+      message: '¿Seguro que deseas cancelar este pedido?',
+      type: 'confirm',
+      confirmText: 'Sí, cancelar',
+      cancelText: 'No',
+      onConfirm: () =>
+        handleAction('cancel-order', { cancel_reason: 'Cancelado por el cliente' }),
+    });
   };
+
+  const searchCouriers = useCallback(() => {
+    if (orderId) {
+      router.push({
+        pathname: '/(tabs)/select-courier',
+        params: { order_id: orderId },
+      });
+    }
+  }, [orderId, router]);
 
   return {
     order,
@@ -216,6 +220,7 @@ export function useOrderDetail(orderId: string | undefined) {
     confirmDelivery,
     initiateReturn,
     cancelOrder,
+    searchCouriers,
     reload: loadOrder,
   };
 }

@@ -1,8 +1,10 @@
 # Edge Functions – Especificación
 
-**Última actualización:** 2026-05-09
+**Última actualización:** 2026-05-19
 
-Todas las Edge Functions se ejecutan en Deno/TypeScript y se invocan mediante peticiones HTTP. Deben usar la `service_role` key para operaciones que requieran permisos elevados, pero siempre autenticando al usuario llamador.
+Todas las Edge Functions se ejecutan en Deno/TypeScript y se invocan mediante peticiones HTTP. Usan la `service_role` key para operaciones que requieren permisos elevados, pero siempre autenticando al usuario llamador mediante `supabaseAdmin.auth.getUser(token)` (extraído del header `Authorization`). A partir de mayo 2026, las dependencias están actualizadas a `std@0.224.0` y `@supabase/supabase-js@2.49.4`.
+
+[... resto del contenido ya actualizado ...]
 
 ## Listado de funciones
 

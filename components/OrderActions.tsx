@@ -5,7 +5,6 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   TextInput,
 } from 'react-native';
@@ -17,12 +16,13 @@ interface Props {
   role: 'customer' | 'courier' | 'admin' | undefined;
   courierId: string | null;
   currentUserId: string | undefined;
-  onAccept: () => Promise<void>;
-  onReject: () => Promise<void>;
-  onConfirmPickup: () => Promise<void>;
-  onConfirmDelivery: (code: string) => Promise<void>;
-  onInitiateReturn: () => Promise<void>;
-  onCancel: () => Promise<void>;
+  onAccept: () => void;
+  onReject: () => void;
+  onConfirmPickup: () => void;
+  onConfirmDelivery: (code: string) => void;
+  onInitiateReturn: () => void;
+  onCancel: () => void;
+  onSearchCouriers?: () => void;   // <-- nuevo
   loading: string | null;
 }
 
@@ -38,6 +38,7 @@ export default function OrderActions({
   onConfirmDelivery,
   onInitiateReturn,
   onCancel,
+  onSearchCouriers,
   loading,
 }: Props) {
   const [showCodeInput, setShowCodeInput] = useState(false);
@@ -47,12 +48,8 @@ export default function OrderActions({
   const isCustomer = role === 'customer';
   const isAssignedToMe = courierId === currentUserId;
 
-  const handleDelivery = async () => {
-    if (!code.trim()) {
-      Alert.alert('Código requerido', 'Ingresa el código de verificación del destinatario');
-      return;
-    }
-    await onConfirmDelivery(code.trim());
+  const handleDelivery = () => {
+    onConfirmDelivery(code);
     setCode('');
     setShowCodeInput(false);
   };
@@ -67,7 +64,7 @@ export default function OrderActions({
 
   return (
     <View style={styles.container}>
-      {/* Mensajero: awaiting_courier → aceptar / rechazar */}
+      {/* ─── Mensajero: awaiting_courier → aceptar / rechazar ─── */}
       {isCourier && status === 'awaiting_courier' && isAssignedToMe && (
         <>
           <TouchableOpacity
@@ -89,7 +86,7 @@ export default function OrderActions({
         </>
       )}
 
-      {/* Mensajero: assigned → confirmar recogida */}
+      {/* ─── Mensajero: assigned → confirmar recogida ─── */}
       {isCourier && status === 'assigned' && isAssignedToMe && (
         <TouchableOpacity
           style={[styles.button, styles.primaryButton]}
@@ -101,7 +98,7 @@ export default function OrderActions({
         </TouchableOpacity>
       )}
 
-      {/* Mensajero: picked_up / in_transit → confirmar entrega o iniciar devolución */}
+      {/* ─── Mensajero: picked_up / in_transit → confirmar entrega o iniciar devolución ─── */}
       {isCourier && ['picked_up', 'in_transit'].includes(status) && isAssignedToMe && (
         <>
           {!showCodeInput ? (
@@ -142,7 +139,7 @@ export default function OrderActions({
         </>
       )}
 
-      {/* Mensajero: delivery_failed → iniciar devolución */}
+      {/* ─── Mensajero: delivery_failed → iniciar devolución ─── */}
       {isCourier && status === 'delivery_failed' && isAssignedToMe && (
         <TouchableOpacity
           style={[styles.button, styles.warnButton]}
@@ -154,7 +151,7 @@ export default function OrderActions({
         </TouchableOpacity>
       )}
 
-      {/* Cliente: cancelar en estados tempranos */}
+      {/* ─── Cliente: cancelar en estados tempranos ─── */}
       {isCustomer && ['pending', 'awaiting_courier', 'assigned'].includes(status) && (
         <TouchableOpacity
           style={[styles.button, styles.rejectButton]}
@@ -163,6 +160,18 @@ export default function OrderActions({
         >
           <Feather name="slash" size={20} color="#FFF" />
           <Text style={styles.buttonTextWhite}>Cancelar pedido</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* ─── Cliente: buscar mensajeros si el pedido está pendiente ─── */}
+      {isCustomer && status === 'pending' && onSearchCouriers && (
+        <TouchableOpacity
+          style={[styles.button, styles.primaryButton]}
+          onPress={onSearchCouriers}
+          disabled={loading !== null}
+        >
+          <Feather name="search" size={20} color="#1A1A1A" />
+          <Text style={styles.buttonTextDark}>Buscar mensajeros</Text>
         </TouchableOpacity>
       )}
     </View>
