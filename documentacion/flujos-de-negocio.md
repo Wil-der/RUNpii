@@ -1,7 +1,3 @@
-Aquí tienes los dos documentos completos y actualizados, listos para copiar y subir a tu repositorio.
-
----
-
 ## 📄 `documentacion/flujos-de-negocio.md`
 
 ```markdown
