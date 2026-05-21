@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "124850436170",
+    "project_id": "runpii",
+    "storage_bucket": "runpii.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:124850436170:android:0414e2fafad48dd22e4eb3",
+        "android_client_info": {
+          "package_name": "com.runpii.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCRNq1fL_p1YPriKg0naLWE136WSKUw3rs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

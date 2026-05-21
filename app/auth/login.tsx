@@ -17,32 +17,31 @@ import { supabase } from '@/lib/supabase';
 import { Feather } from '@expo/vector-icons';
 import { useAppModal } from '@/contexts/ModalContext';
 
-const REMEMBER_KEY = '@runpii_remember';
+  const REMEMBER_KEY = '@runpii_remembered_email';
 
-export default function LoginScreen() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [emailError, setEmailError] = useState('');
-  const [passwordError, setPasswordError] = useState('');
-  const router = useRouter();
-  const { showModal } = useAppModal();
+  export default function LoginScreen() {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [rememberMe, setRememberMe] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [emailError, setEmailError] = useState('');
+    const [passwordError, setPasswordError] = useState('');
+    const router = useRouter();
+    const { showModal } = useAppModal();
 
-  // Cargar credenciales guardadas al montar
-  useEffect(() => {
-    (async () => {
-      try {
-        const stored = await AsyncStorage.getItem(REMEMBER_KEY);
-        if (stored) {
-          const { email: savedEmail, password: savedPassword } = JSON.parse(stored);
-          setEmail(savedEmail || '');
-          setPassword(savedPassword || '');
-          setRememberMe(true);
-        }
-      } catch {}
-    })();
-  }, []);
+    // Cargar email guardado al montar (solo email, nunca contraseña)
+    useEffect(() => {
+      (async () => {
+        try {
+          const stored = await AsyncStorage.getItem(REMEMBER_KEY);
+          if (stored) {
+            const { email: savedEmail } = JSON.parse(stored);
+            setEmail(savedEmail || '');
+            setRememberMe(true);
+          }
+        } catch {}
+      })();
+    }, []);
 
   const validate = () => {
     let valid = true;
@@ -84,7 +83,7 @@ export default function LoginScreen() {
     // Guardar o limpiar credenciales según "Recuérdame"
     try {
       if (rememberMe) {
-        await AsyncStorage.setItem(REMEMBER_KEY, JSON.stringify({ email, password }));
+        await AsyncStorage.setItem(REMEMBER_KEY, JSON.stringify({ email }));
       } else {
         await AsyncStorage.removeItem(REMEMBER_KEY);
       }
