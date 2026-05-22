@@ -11,12 +11,15 @@ import {
   ScrollView,
   TextInput,
 } from 'react-native';
-import MapView, { Marker, PROVIDER_DEFAULT, Polyline } from 'react-native-maps';
+import MapLibreGL from '@maplibre/maplibre-react-native';
 import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSelectCourier, Courier, CourierFilters } from '@/hooks/useSelectCourier';
 import CourierCard from '@/components/CourierCard';
 import CourierModal from '@/components/CourierModal';
+import { MAP_STYLE } from '@/lib/mapConfig';
+
+MapLibreGL.setAccessToken(null);
 
 export default function SelectCourierScreen() {
   const { order_id } = useLocalSearchParams<{ order_id: string }>();
@@ -38,21 +41,17 @@ export default function SelectCourierScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [showPriceRating, setShowPriceRating] = useState(false);
 
-  const mapRef = useRef<MapView>(null);
+  const cameraRef = useRef<MapLibreGL.Camera>(null);
   const listRef = useRef<FlatList<Courier>>(null);
 
   const openCourierModal = (courier: Courier) => {
     setModalCourier(courier);
     setModalVisible(true);
-    mapRef.current?.animateToRegion(
-      {
-        latitude: courier.courier_lat,
-        longitude: courier.courier_lng,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
-      },
-      500,
-    );
+    cameraRef.current?.setCamera({
+      centerCoordinate: [courier.courier_lng, courier.courier_lat],
+      zoomLevel: 14,
+      animationDuration: 500,
+    });
   };
 
   const closeModal = () => {
@@ -66,9 +65,7 @@ export default function SelectCourierScreen() {
   };
 
   const handleMarkerPress = (courier: Courier) => {
-    const index = filteredCouriers.findIndex(
-      (c) => c.courier_id === courier.courier_id,
-    );
+    const index = filteredCouriers.findIndex((c) => c.courier_id === courier.courier_id);
     if (index !== -1) {
       listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
       setHighlightedId(courier.courier_id);
@@ -78,18 +75,22 @@ export default function SelectCourierScreen() {
 
   const fitMapToElements = () => {
     if (!order?.pickup_location || !order?.delivery_location) return;
-    const coordinates = [
-      order.pickup_location,
-      order.delivery_location,
-      ...filteredCouriers.map((c) => ({
-        latitude: c.courier_lat,
-        longitude: c.courier_lng,
-      })),
+
+    const allPoints = [
+      [order.pickup_location.longitude, order.pickup_location.latitude],
+      [order.delivery_location.longitude, order.delivery_location.latitude],
+      ...filteredCouriers.map((c) => [c.courier_lng, c.courier_lat]),
     ];
-    mapRef.current?.fitToCoordinates(coordinates, {
-      edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
-      animated: true,
-    });
+
+    const lngs = allPoints.map((p) => p[0]);
+    const lats = allPoints.map((p) => p[1]);
+
+    cameraRef.current?.fitBounds(
+      [Math.min(...lngs), Math.min(...lats)],
+      [Math.max(...lngs), Math.max(...lats)],
+      [50, 50, 50, 50],
+      800
+    );
   };
 
   const renderItem = useCallback(
@@ -111,6 +112,21 @@ export default function SelectCourierScreen() {
     { value: 'rating', label: 'Valoración' },
   ];
 
+  // GeoJSON para la línea recogida → entrega
+  const routeLineGeoJSON = order?.pickup_location && order?.delivery_location
+    ? {
+        type: 'Feature' as const,
+        geometry: {
+          type: 'LineString' as const,
+          coordinates: [
+            [order.pickup_location.longitude, order.pickup_location.latitude],
+            [order.delivery_location.longitude, order.delivery_location.latitude],
+          ],
+        },
+        properties: {},
+      }
+    : null;
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -124,43 +140,88 @@ export default function SelectCourierScreen() {
 
   return (
     <View style={styles.container}>
-      {/* ===== Mapa (30% altura) ===== */}
+      {/* ===== Mapa ===== */}
       <View style={styles.mapContainer}>
-        <MapView
-          ref={mapRef}
+        <MapLibreGL.MapView
           style={styles.map}
-          initialRegion={
-            pickupCoords
-              ? {
-                  latitude: pickupCoords.latitude,
-                  longitude: pickupCoords.longitude,
-                  latitudeDelta: 0.05,
-                  longitudeDelta: 0.05,
-                }
-              : undefined
-          }
-          provider={PROVIDER_DEFAULT}
+          styleURL={MAP_STYLE}
+          logoEnabled={false}
+          attributionEnabled={false}
         >
-          {pickupCoords && <Marker coordinate={pickupCoords} title="Recogida" pinColor="red" />}
-          {deliveryCoords && <Marker coordinate={deliveryCoords} title="Entrega" pinColor="blue" />}
-          {filteredCouriers.map((c) => (
-            <Marker
-              key={c.courier_id}
-              coordinate={{ latitude: c.courier_lat, longitude: c.courier_lng }}
-              title={c.full_name}
-              description={`$${c.estimated_price?.toFixed(2)}`}
-              pinColor={highlightedId === c.courier_id ? 'purple' : 'green'}
-              onPress={() => handleMarkerPress(c)}
-            />
-          ))}
-          {pickupCoords && deliveryCoords && (
-            <Polyline
-              coordinates={[pickupCoords, deliveryCoords]}
-              strokeColor="#F7C925"
-              strokeWidth={3}
-            />
+          <MapLibreGL.Camera
+            ref={cameraRef}
+            defaultSettings={
+              pickupCoords
+                ? {
+                    centerCoordinate: [pickupCoords.longitude, pickupCoords.latitude],
+                    zoomLevel: 12,
+                  }
+                : undefined
+            }
+          />
+
+          {/* Línea recogida → entrega */}
+          {routeLineGeoJSON && (
+            <MapLibreGL.ShapeSource id="routeLine" shape={routeLineGeoJSON}>
+              <MapLibreGL.LineLayer
+                id="routeLineLayer"
+                style={{
+                  lineColor: '#F7C925',
+                  lineWidth: 3,
+                  lineDasharray: [2, 2],
+                  lineJoin: 'round',
+                }}
+              />
+            </MapLibreGL.ShapeSource>
           )}
-        </MapView>
+
+          {/* Marcador recogida */}
+          {pickupCoords && (
+            <MapLibreGL.PointAnnotation
+              id="pickup"
+              coordinate={[pickupCoords.longitude, pickupCoords.latitude]}
+              title="Recogida"
+            >
+              <View style={[styles.marker, { backgroundColor: '#EF4444' }]}>
+                <Text style={styles.markerText}>R</Text>
+              </View>
+            </MapLibreGL.PointAnnotation>
+          )}
+
+          {/* Marcador entrega */}
+          {deliveryCoords && (
+            <MapLibreGL.PointAnnotation
+              id="delivery"
+              coordinate={[deliveryCoords.longitude, deliveryCoords.latitude]}
+              title="Entrega"
+            >
+              <View style={[styles.marker, { backgroundColor: '#3B82F6' }]}>
+                <Text style={styles.markerText}>E</Text>
+              </View>
+            </MapLibreGL.PointAnnotation>
+          )}
+
+          {/* Marcadores mensajeros */}
+          {filteredCouriers.map((c) => (
+            <MapLibreGL.PointAnnotation
+              key={c.courier_id}
+              id={`courier-${c.courier_id}`}
+              coordinate={[c.courier_lng, c.courier_lat]}
+              title={c.full_name}
+              onSelected={() => handleMarkerPress(c)}
+            >
+              <View style={[
+                styles.marker,
+                {
+                  backgroundColor: highlightedId === c.courier_id ? '#8B5CF6' : '#10B981',
+                  transform: [{ scale: highlightedId === c.courier_id ? 1.2 : 1 }],
+                },
+              ]}>
+                <Text style={styles.markerText}>M</Text>
+              </View>
+            </MapLibreGL.PointAnnotation>
+          ))}
+        </MapLibreGL.MapView>
 
         <TouchableOpacity style={styles.fitButton} onPress={fitMapToElements}>
           <Feather name="maximize" size={18} color="#1A1A1A" />
@@ -187,7 +248,7 @@ export default function SelectCourierScreen() {
         </Text>
       </View>
 
-      {/* ===== Filtros (altura fija para que nunca se colapsen) ===== */}
+      {/* ===== Filtros ===== */}
       <View style={styles.filtersContainer}>
         <ScrollView
           horizontal
@@ -199,10 +260,7 @@ export default function SelectCourierScreen() {
               key={v}
               style={[styles.chip, filters.vehicleType === v && styles.chipActive]}
               onPress={() =>
-                setFilters({
-                  ...filters,
-                  vehicleType: filters.vehicleType === v ? null : v,
-                })
+                setFilters({ ...filters, vehicleType: filters.vehicleType === v ? null : v })
               }
             >
               <Text style={[styles.chipText, filters.vehicleType === v && styles.chipTextActive]}>
@@ -229,11 +287,7 @@ export default function SelectCourierScreen() {
             style={[styles.chip, showPriceRating && styles.chipActive]}
             onPress={() => setShowPriceRating(!showPriceRating)}
           >
-            <Feather
-              name="dollar-sign"
-              size={15}
-              color={showPriceRating ? '#1A1A1A' : '#6B7280'}
-            />
+            <Feather name="dollar-sign" size={15} color={showPriceRating ? '#1A1A1A' : '#6B7280'} />
             <Text style={[styles.chipText, showPriceRating && styles.chipTextActive]}>
               Precio / Rating
             </Text>
@@ -248,9 +302,7 @@ export default function SelectCourierScreen() {
               placeholder="Precio máx"
               placeholderTextColor="#9CA3AF"
               value={filters.maxPrice?.toString() ?? ''}
-              onChangeText={(t) =>
-                setFilters({ ...filters, maxPrice: t ? parseFloat(t) : null })
-              }
+              onChangeText={(t) => setFilters({ ...filters, maxPrice: t ? parseFloat(t) : null })}
             />
             <TextInput
               style={styles.numericInput}
@@ -258,15 +310,9 @@ export default function SelectCourierScreen() {
               placeholder="Rating mín"
               placeholderTextColor="#9CA3AF"
               value={filters.minRating?.toString() ?? ''}
-              onChangeText={(t) =>
-                setFilters({ ...filters, minRating: t ? parseFloat(t) : null })
-              }
+              onChangeText={(t) => setFilters({ ...filters, minRating: t ? parseFloat(t) : null })}
             />
-            <TouchableOpacity
-              onPress={() => {
-                setFilters({ ...filters, maxPrice: null, minRating: null });
-              }}
-            >
+            <TouchableOpacity onPress={() => setFilters({ ...filters, maxPrice: null, minRating: null })}>
               <Feather name="x-circle" size={22} color="#9CA3AF" />
             </TouchableOpacity>
           </View>
@@ -295,7 +341,6 @@ export default function SelectCourierScreen() {
         }
       />
 
-      {/* Modal de vista previa */}
       <CourierModal
         visible={modalVisible}
         courier={modalCourier}
@@ -329,23 +374,10 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
   },
   header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6 },
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
+  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   title: { fontFamily: 'Inter_700Bold', fontSize: 20, color: '#1A1A1A' },
-  subtitle: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 13,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  filtersContainer: {
-    // altura fija para que nunca se colapse
-    minHeight: 48,
-    justifyContent: 'center',
-  },
+  subtitle: { fontFamily: 'Inter_400Regular', fontSize: 13, color: '#6B7280', marginTop: 2 },
+  filtersContainer: { minHeight: 48, justifyContent: 'center' },
   filterScroll: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -364,15 +396,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9FAFB',
     gap: 4,
   },
-  chipActive: {
-    backgroundColor: '#F7C925',
-    borderColor: '#F7C925',
-  },
-  chipText: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 14,
-    color: '#6B7280',
-  },
+  chipActive: { backgroundColor: '#F7C925', borderColor: '#F7C925' },
+  chipText: { fontFamily: 'Inter_500Medium', fontSize: 14, color: '#6B7280' },
   chipTextActive: { color: '#1A1A1A' },
   separator: { width: 1, height: 22, backgroundColor: '#E5E7EB' },
   priceRatingRow: {
@@ -396,4 +421,14 @@ const styles = StyleSheet.create({
   list: { paddingHorizontal: 16, paddingBottom: 20 },
   empty: { textAlign: 'center', color: '#6B7280', marginTop: 40 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  marker: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  markerText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 13 },
 });

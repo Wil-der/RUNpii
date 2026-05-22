@@ -1,5 +1,5 @@
 // app/(tabs)/new-order.tsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -12,15 +12,18 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapLibreGL from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
 import { Feather } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'expo-router';
 import { useAppModal } from '@/contexts/ModalContext';
+import { MAP_STYLE } from '@/lib/mapConfig';
 
-// ---- Geocodificación alternativa con Nominatim (OpenStreetMap) ----
+MapLibreGL.setAccessToken(null);
+
+// ---- Geocodificación con Nominatim (OpenStreetMap) ----
 const nominatimReverse = async (lat: number, lng: number): Promise<string | null> => {
   try {
     const controller = new AbortController();
@@ -54,6 +57,7 @@ export default function NewOrderScreen() {
   const { profile } = useAuth();
   const router = useRouter();
   const { showModal } = useAppModal();
+  const cameraRef = useRef<MapLibreGL.Camera>(null);
 
   useEffect(() => {
     if (profile && profile.role !== 'customer') {
@@ -73,7 +77,7 @@ export default function NewOrderScreen() {
   const [specialInstructions, setSpecialInstructions] = useState('');
   const [recipientEmail, setRecipientEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [mapRegion, setMapRegion] = useState<any>(null);
+  const [mapReady, setMapReady] = useState(false);
 
   const packageSizes = ['small', 'medium', 'large', 'extra_large'] as const;
   const packageSizeLabels: Record<string, string> = {
@@ -93,29 +97,31 @@ export default function NewOrderScreen() {
       const loc = await Location.getCurrentPositionAsync({});
       const { latitude, longitude } = loc.coords;
       setPickupCoords({ latitude, longitude });
-      setMapRegion({ latitude, longitude, latitudeDelta: 0.01, longitudeDelta: 0.01 });
       const addr = await getAddressFromCoords(latitude, longitude, 'Ubicación actual');
       setPickupAddress(addr);
     })();
   }, []);
 
-  const handleMapPress = async (e: any) => {
-    const coords = e.nativeEvent.coordinate;
-    setDeliveryCoords(coords);
-    const addr = await getAddressFromCoords(coords.latitude, coords.longitude, 'Punto de entrega');
-    setDeliveryAddress(addr);
-  };
+  // Mover cámara cuando tengamos la ubicación
+  useEffect(() => {
+    if (!pickupCoords || !mapReady) return;
+    cameraRef.current?.setCamera({
+      centerCoordinate: [pickupCoords.longitude, pickupCoords.latitude],
+      zoomLevel: 14,
+      animationDuration: 500,
+    });
+  }, [pickupCoords, mapReady]);
 
-  const handlePickupDrag = async (e: any) => {
-    const coords = e.nativeEvent.coordinate;
-    setPickupCoords(coords);
-    const addr = await getAddressFromCoords(coords.latitude, coords.longitude, 'Ubicación actual');
-    setPickupAddress(addr);
+  const handleMapPress = async (e: any) => {
+    const [longitude, latitude] = e.geometry.coordinates;
+    setDeliveryCoords({ latitude, longitude });
+    const addr = await getAddressFromCoords(latitude, longitude, 'Punto de entrega');
+    setDeliveryAddress(addr);
   };
 
   const handleCreateOrder = async () => {
     if (!pickupCoords || !deliveryCoords) {
-      showModal({ title: 'Error', message: 'Selecciona los puntos de recogida y entrega.', type: 'info' });
+      showModal({ title: 'Error', message: 'Selecciona los puntos de recogida y entrega en el mapa.', type: 'info' });
       return;
     }
     if (!recipientEmail.trim()) {
@@ -183,7 +189,7 @@ export default function NewOrderScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={{ flex: 1 }}>
-        {/* Cabecera fija */}
+        {/* Cabecera */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()}>
             <Feather name="arrow-left" size={22} color="#F7C925" />
@@ -192,28 +198,75 @@ export default function NewOrderScreen() {
           <View style={{ width: 22 }} />
         </View>
 
-        {/* Mapa fijo al 30% */}
+        {/* Mapa */}
         <View style={styles.mapContainer}>
-          {mapRegion ? (
-            <MapView
-              style={styles.map}
-              initialRegion={mapRegion}
-              onPress={handleMapPress}
-              provider={PROVIDER_DEFAULT}
-            >
-              {pickupCoords && (
-                <Marker coordinate={pickupCoords} title="Recogida" pinColor="red" draggable onDragEnd={handlePickupDrag} />
-              )}
-              {deliveryCoords && (
-                <Marker coordinate={deliveryCoords} title="Entrega" pinColor="blue" />
-              )}
-            </MapView>
-          ) : (
-            <ActivityIndicator style={styles.mapLoader} size="large" color="#F7C925" />
+          <MapLibreGL.MapView
+            style={styles.map}
+            styleURL={MAP_STYLE}
+            logoEnabled={false}
+            attributionEnabled={false}
+            onDidFinishLoadingMap={() => setMapReady(true)}
+            onPress={handleMapPress}
+          >
+            <MapLibreGL.Camera ref={cameraRef} />
+
+            {/* Marcador recogida */}
+            {pickupCoords && (
+              <MapLibreGL.PointAnnotation
+                id="pickup"
+                coordinate={[pickupCoords.longitude, pickupCoords.latitude]}
+                title="Recogida"
+                draggable
+                onDragEnd={async (e: any) => {
+                  const [longitude, latitude] = e.geometry.coordinates;
+                  setPickupCoords({ latitude, longitude });
+                  const addr = await getAddressFromCoords(latitude, longitude, 'Ubicación actual');
+                  setPickupAddress(addr);
+                }}
+              >
+                <View style={[styles.marker, { backgroundColor: '#EF4444' }]}>
+                  <Text style={styles.markerText}>R</Text>
+                </View>
+              </MapLibreGL.PointAnnotation>
+            )}
+
+            {/* Marcador entrega */}
+            {deliveryCoords && (
+              <MapLibreGL.PointAnnotation
+                id="delivery"
+                coordinate={[deliveryCoords.longitude, deliveryCoords.latitude]}
+                title="Entrega"
+              >
+                <View style={[styles.marker, { backgroundColor: '#3B82F6' }]}>
+                  <Text style={styles.markerText}>E</Text>
+                </View>
+              </MapLibreGL.PointAnnotation>
+            )}
+          </MapLibreGL.MapView>
+
+          {/* Hint para el usuario */}
+          {!deliveryCoords && (
+            <View style={styles.mapHint}>
+              <Text style={styles.mapHintText}>Toca el mapa para marcar el punto de entrega</Text>
+            </View>
           )}
         </View>
 
-        {/* Formulario con scroll */}
+        {/* Direcciones detectadas */}
+        <View style={styles.addressRow}>
+          <View style={styles.addressItem}>
+            <View style={[styles.dot, { backgroundColor: '#EF4444' }]} />
+            <Text style={styles.addressText} numberOfLines={1}>{pickupAddress || 'Obteniendo ubicación...'}</Text>
+          </View>
+          {deliveryAddress ? (
+            <View style={styles.addressItem}>
+              <View style={[styles.dot, { backgroundColor: '#3B82F6' }]} />
+              <Text style={styles.addressText} numberOfLines={1}>{deliveryAddress}</Text>
+            </View>
+          ) : null}
+        </View>
+
+        {/* Formulario */}
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={styles.contentScroll}
@@ -234,8 +287,14 @@ export default function NewOrderScreen() {
             <Text style={styles.sectionTitle}>Tamaño del paquete</Text>
             <View style={styles.chipRow}>
               {packageSizes.map(size => (
-                <TouchableOpacity key={size} style={[styles.chip, packageSize === size && styles.chipActive]} onPress={() => setPackageSize(size)}>
-                  <Text style={[styles.chipText, packageSize === size && styles.chipTextActive]}>{packageSizeLabels[size]}</Text>
+                <TouchableOpacity
+                  key={size}
+                  style={[styles.chip, packageSize === size && styles.chipActive]}
+                  onPress={() => setPackageSize(size)}
+                >
+                  <Text style={[styles.chipText, packageSize === size && styles.chipTextActive]}>
+                    {packageSizeLabels[size]}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -312,11 +371,27 @@ const styles = StyleSheet.create({
   title: { fontFamily: 'Inter_700Bold', fontSize: 20, color: '#1A1A1A' },
   mapContainer: { height: '30%', position: 'relative' },
   map: { flex: 1 },
-  mapLoader: { flex: 1, justifyContent: 'center' },
-  contentScroll: {
-    flexGrow: 1,
-    paddingBottom: 40,
+  mapHint: {
+    position: 'absolute',
+    bottom: 8,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
   },
+  mapHintText: { color: '#FFFFFF', fontFamily: 'Inter_400Regular', fontSize: 12 },
+  addressRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    gap: 4,
+  },
+  addressItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  addressText: { fontFamily: 'Inter_400Regular', fontSize: 13, color: '#6B7280', flex: 1 },
+  contentScroll: { flexGrow: 1, paddingBottom: 40 },
   form: { paddingHorizontal: 16, paddingTop: 12 },
   sectionTitle: {
     fontFamily: 'Inter_600SemiBold',
@@ -357,9 +432,15 @@ const styles = StyleSheet.create({
     marginTop: 30,
   },
   disabledButton: { opacity: 0.6 },
-  createButtonText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 16,
-    color: '#1A1A1A',
+  createButtonText: { fontFamily: 'Inter_600SemiBold', fontSize: 16, color: '#1A1A1A' },
+  marker: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
+  markerText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 13 },
 });

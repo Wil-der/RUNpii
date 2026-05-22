@@ -9,11 +9,11 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "extra": {
-       "router": {},
-       "eas": {
-         "projectId": "6fdfa8dc-6491-4720-afba-1ee136d0eda3"
-       }
-     },
+      "router": {},
+      "eas": {
+        "projectId": "6fdfa8dc-6491-4720-afba-1ee136d0eda3"
+      }
+    },
     "ios": {
       "supportsTablet": true
     },
@@ -48,7 +48,8 @@
         }
       ],
       "expo-font",
-      "expo-notifications"
+      "expo-notifications",
+      "@maplibre/maplibre-react-native"
     ],
     "experiments": {
       "typedRoutes": true,

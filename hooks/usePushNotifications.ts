@@ -6,7 +6,6 @@ import * as Notifications from 'expo-notifications';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/use-auth';
 
-// Configurar el comportamiento de las notificaciones en primer plano
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -17,56 +16,50 @@ Notifications.setNotificationHandler({
 
 export function usePushNotifications() {
   const { user } = useAuth();
-  const [expoPushToken, setExpoPushToken] = useState<string | null>(null);
+  const [fcmToken, setFcmToken] = useState<string | null>(null);
   const notificationListener = useRef<Notifications.Subscription | null>(null);
   const responseListener = useRef<Notifications.Subscription | null>(null);
 
   useEffect(() => {
     if (!user) return;
 
-    registerForPushNotificationsAsync().then(async (token) => {
+    registerAndSaveToken().then(async (token) => {
       if (!token) return;
-      setExpoPushToken(token);
+      setFcmToken(token);
 
-      // Guardar el token en push_subscriptions
       const { error } = await supabase.from('push_subscriptions').upsert({
         user_id: user.id,
         endpoint: token,
-        p256dh_key: 'expo',
-        auth_key: 'expo',
+        p256dh_key: 'fcm',
+        auth_key: 'fcm',
         device_type: Platform.OS,
       });
 
       if (error) {
-        console.error('Error al guardar el token:', error);
+        console.error('Error al guardar el token FCM:', error);
       }
     });
 
-    // Recibir notificaciones en primer plano
     notificationListener.current = Notifications.addNotificationReceivedListener((notification) => {
       console.log('Notificación recibida:', notification.request.content.title);
     });
 
-    // Tocar notificación abre la app
     responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification.request.content.data;
-      // La navegación se maneja en _layout.tsx con el router
+      // Navegación manejada en _layout.tsx
     });
 
     return () => {
-      if (notificationListener.current) {
-        Notifications.removeNotificationSubscription(notificationListener.current);
-      }
-      if (responseListener.current) {
-        Notifications.removeNotificationSubscription(responseListener.current);
-      }
+      // Eliminar suscripciones correctamente
+      notificationListener.current?.remove();
+      responseListener.current?.remove();
     };
   }, [user]);
 
-  return expoPushToken;
+  return fcmToken;
 }
 
-async function registerForPushNotificationsAsync(): Promise<string | null> {
+async function registerAndSaveToken(): Promise<string | null> {
   if (!Device.isDevice) {
     console.log('Las notificaciones solo funcionan en dispositivos físicos');
     return null;
@@ -83,7 +76,12 @@ async function registerForPushNotificationsAsync(): Promise<string | null> {
     return null;
   }
 
-  const token = (await Notifications.getExpoPushTokenAsync()).data;
-  console.log('Expo Push Token:', token);
-  return token;
+  try {
+    const devicePushToken = (await Notifications.getDevicePushTokenAsync()).data;
+    console.log('Token FCM nativo:', devicePushToken);
+    return devicePushToken;
+  } catch (error) {
+    console.warn('Error al obtener el token FCM:', error);
+    return null;
+  }
 }
