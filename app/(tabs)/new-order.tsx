@@ -20,6 +20,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'expo-router';
 import { useAppModal } from '@/contexts/ModalContext';
 import { MAP_STYLE } from '@/lib/mapConfig';
+import { API_TIMEOUTS } from '@/constants/api';  // ← añadir
 
 MapLibreGL.setAccessToken(null);
 
@@ -58,6 +59,14 @@ export default function NewOrderScreen() {
   const router = useRouter();
   const { showModal } = useAppModal();
   const cameraRef = useRef<MapLibreGL.Camera>(null);
+  const mountedRef = useRef(true); // ← para evitar updates sobre componente desmontado
+
+  // Marcar como desmontado al salir
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (profile && profile.role !== 'customer') {
@@ -96,8 +105,10 @@ export default function NewOrderScreen() {
       }
       const loc = await Location.getCurrentPositionAsync({});
       const { latitude, longitude } = loc.coords;
+      if (!mountedRef.current) return;
       setPickupCoords({ latitude, longitude });
       const addr = await getAddressFromCoords(latitude, longitude, 'Ubicación actual');
+      if (!mountedRef.current) return;
       setPickupAddress(addr);
     })();
   }, []);
@@ -114,8 +125,10 @@ export default function NewOrderScreen() {
 
   const handleMapPress = async (e: any) => {
     const [longitude, latitude] = e.geometry.coordinates;
+    if (!mountedRef.current) return;
     setDeliveryCoords({ latitude, longitude });
     const addr = await getAddressFromCoords(latitude, longitude, 'Punto de entrega');
+    if (!mountedRef.current) return;
     setDeliveryAddress(addr);
   };
 
@@ -129,17 +142,33 @@ export default function NewOrderScreen() {
       return;
     }
 
+    if (!mountedRef.current) return;
     setIsLoading(true);
+
+    // AbortController para cancelar la petición si el componente se desmonta
+    const abortController = new AbortController();
+
     try {
-      const rpcPromise = supabase.rpc('get_user_id_by_email', { user_email: recipientEmail.trim().toLowerCase() });
-      const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 10000));
-      const result = await Promise.race([rpcPromise, timeoutPromise]);
+      // Envolver la petición RPC con un timeout que distinga el motivo del fallo
+      const timeoutMs = API_TIMEOUTS.FIND_RECIPIENT;  // ← reemplazar 10000;
+      const rpcPromise = supabase.rpc('get_user_id_by_email', {
+        user_email: recipientEmail.trim().toLowerCase(),
+      });
+
+      const { result, timedOut } = await promiseWithTimeout(rpcPromise, timeoutMs, abortController.signal);
+
+      if (!mountedRef.current) return;
+
+      if (timedOut) {
+        showModal({ title: 'Tiempo agotado', message: 'La búsqueda del destinatario tardó demasiado. Verifica tu conexión e inténtalo de nuevo.', type: 'info' });
+        return;
+      }
 
       if (!result || !result.data) {
         showModal({ title: 'Error', message: 'Email no encontrado o no verificado.', type: 'info' });
-        setIsLoading(false);
         return;
       }
+
       const recipientId = result.data;
 
       const { data: recipientProfile, error: profileError } = await supabase
@@ -147,9 +176,11 @@ export default function NewOrderScreen() {
         .select('id')
         .eq('id', recipientId)
         .single();
+
+      if (!mountedRef.current) return;
+
       if (profileError || !recipientProfile) {
         showModal({ title: 'Error', message: 'El destinatario no tiene perfil.', type: 'info' });
-        setIsLoading(false);
         return;
       }
 
@@ -169,17 +200,22 @@ export default function NewOrderScreen() {
         p_special_instructions: specialInstructions,
       });
 
+      if (!mountedRef.current) return;
+
       if (createError) {
         showModal({ title: 'Error', message: 'No se pudo crear el pedido: ' + createError.message, type: 'info' });
-        setIsLoading(false);
         return;
       }
 
       router.replace({ pathname: '/(tabs)/select-courier', params: { order_id: orderId } });
     } catch (error: any) {
+      if (!mountedRef.current) return;
+      if (error.name === 'AbortError') return; // el componente se desmontó, no hacer nada
       showModal({ title: 'Error', message: 'Ocurrió un problema al crear el pedido.', type: 'info' });
     } finally {
-      setIsLoading(false);
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -205,7 +241,7 @@ export default function NewOrderScreen() {
             styleURL={MAP_STYLE}
             logoEnabled={false}
             attributionEnabled={false}
-            onDidFinishLoadingMap={() => setMapReady(true)}
+            onDidFinishLoadingMap={() => { if (mountedRef.current) setMapReady(true); }}
             onPress={handleMapPress}
           >
             <MapLibreGL.Camera ref={cameraRef} />
@@ -219,8 +255,10 @@ export default function NewOrderScreen() {
                 draggable
                 onDragEnd={async (e: any) => {
                   const [longitude, latitude] = e.geometry.coordinates;
+                  if (!mountedRef.current) return;
                   setPickupCoords({ latitude, longitude });
                   const addr = await getAddressFromCoords(latitude, longitude, 'Ubicación actual');
+                  if (!mountedRef.current) return;
                   setPickupAddress(addr);
                 }}
               >
@@ -357,6 +395,40 @@ export default function NewOrderScreen() {
       </View>
     </KeyboardAvoidingView>
   );
+}
+
+// Función auxiliar para timeout con distinción del motivo
+async function promiseWithTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<{ result: T | null; timedOut: boolean }> {
+  let timer: ReturnType<typeof setTimeout>;
+
+  const timeoutPromise = new Promise<{ result: null; timedOut: true }>(resolve => {
+    timer = setTimeout(() => resolve({ result: null, timedOut: true }), timeoutMs);
+  });
+
+  // Si se aborta desde fuera (componente desmontado), resolvemos con timeout falso
+  const abortPromise = signal
+    ? new Promise<{ result: null; timedOut: false }>((resolve) => {
+        signal.addEventListener('abort', () => resolve({ result: null, timedOut: false }));
+      })
+    : undefined;
+
+  try {
+    const winner = await Promise.race([
+      promise.then(result => ({ result, timedOut: false })),
+      timeoutPromise,
+      ...(abortPromise ? [abortPromise] : []),
+    ]);
+
+    clearTimeout(timer!);
+    return winner;
+  } catch {
+    clearTimeout(timer!);
+    return { result: null, timedOut: false };
+  }
 }
 
 const styles = StyleSheet.create({

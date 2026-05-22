@@ -29,19 +29,49 @@ export default function RateScreen() {
   const [comment, setComment] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [valid, setValid] = useState(false); // nuevo estado para controlar la validación
 
+  // Validar que el usuario a valorar es realmente participante del pedido
   useEffect(() => {
+    if (!order_id || !to_user_id) return;
+
     (async () => {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('customer_id, courier_id, status')
+        .eq('id', order_id)
+        .single();
+
+      if (error || !data) {
+        showModal({ title: 'Error', message: 'Pedido no encontrado.', type: 'info' });
+        router.back();
+        return;
+      }
+
+      if (!['delivered', 'returned'].includes(data.status)) {
+        showModal({ title: 'Error', message: 'Este pedido aún no puede ser valorado.', type: 'info' });
+        router.back();
+        return;
+      }
+
+      if (data.customer_id !== to_user_id && data.courier_id !== to_user_id) {
+        showModal({ title: 'Error', message: 'El usuario no participó en este pedido.', type: 'info' });
+        router.back();
+        return;
+      }
+
+      setValid(true);
+
       // Obtener nombre del evaluado desde la vista pública
-      const { data } = await supabase
+      const { data: userData } = await supabase
         .from('public_profiles')
         .select('full_name')
         .eq('id', to_user_id)
         .single();
-      if (data) setRatedUser(data);
+      if (userData) setRatedUser(userData);
       setLoading(false);
     })();
-  }, [to_user_id]);
+  }, [order_id, to_user_id]);
 
   const toggleTag = (tag: string) => {
     setSelectedTags(prev =>
@@ -58,7 +88,6 @@ export default function RateScreen() {
 
     setSending(true);
     try {
-      // Insertar valoración (el trigger actualizará la reputación)
       const { error } = await supabase.from('ratings').insert({
         order_id,
         from_user_id: profile.id,
@@ -79,7 +108,7 @@ export default function RateScreen() {
     }
   };
 
-  if (loading) {
+  if (loading || !valid) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color="#F7C925" />

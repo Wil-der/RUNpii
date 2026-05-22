@@ -11,12 +11,11 @@ export function useAuth() {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isOffline, setIsOffline] = useState(false); // ← NUEVO
 
-  // Referencias para guardar el estado anterior al perder conexión
   const previousAvailability = useRef<string | null>(null);
   const appState = useRef<AppStateStatus>(AppState.currentState);
 
-  // Efecto de inicialización de sesión
   useEffect(() => {
     const loadUserData = async () => {
       try {
@@ -32,7 +31,7 @@ export function useAuth() {
           }
         }
       } catch (err) {
-        console.error('Auth initialization error:', err);
+        if (__DEV__) console.error('Auth initialization error:', err);
       } finally {
         setLoading(false);
       }
@@ -62,17 +61,19 @@ export function useAuth() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Efecto de conectividad (solo para mensajeros)
   useEffect(() => {
     if (!profile || profile.role !== 'courier') return;
 
     const unsubscribeNetInfo = NetInfo.addEventListener((state: NetInfoState) => {
+      // Actualizar estado offline global
+      setIsOffline(!state.isConnected);
       handleConnectivityChange(state.isConnected);
     });
 
     const subscriptionAppState = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
       if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
         NetInfo.fetch().then((state) => {
+          setIsOffline(!state.isConnected);
           handleConnectivityChange(state.isConnected);
         });
       }
@@ -84,6 +85,19 @@ export function useAuth() {
       subscriptionAppState.remove();
     };
   }, [profile?.id, profile?.role, profile?.availability_status, profile?.is_active]);
+
+  // Para usuarios no mensajeros, también queremos el banner offline
+  useEffect(() => {
+    if (profile && profile.role === 'courier') return; // ya lo maneja el efecto anterior
+
+    const unsubscribeNetInfo = NetInfo.addEventListener((state: NetInfoState) => {
+      setIsOffline(!state.isConnected);
+    });
+
+    return () => {
+      unsubscribeNetInfo();
+    };
+  }, [profile?.role]);
 
   const handleConnectivityChange = async (isConnected: boolean | null) => {
     if (!profile || profile.role !== 'courier' || !profile.is_active) return;
@@ -105,7 +119,7 @@ export function useAuth() {
         }
       }
     } catch (error) {
-      console.error('Error al actualizar disponibilidad por conectividad:', error);
+      if (__DEV__) console.error('Error al actualizar disponibilidad por conectividad:', error);
     }
   };
 
@@ -116,14 +130,18 @@ export function useAuth() {
 
     const interval = setInterval(async () => {
       try {
-        await supabase
+        const { error } = await supabase
           .from('profiles')
           .update({ last_seen: new Date().toISOString() })
           .eq('id', profile.id);
-      } catch (error) {
-        // Silencioso: si falla, el siguiente intento lo arregla
+
+        if (error && __DEV__) {
+          console.warn('⚠️ Heartbeat falló (last_seen):', error.message);
+        }
+      } catch (err) {
+        if (__DEV__) console.warn('⚠️ Heartbeat excepción:', err);
       }
-    }, 60000); // cada 60 segundos
+    }, 60000);
 
     return () => clearInterval(interval);
   }, [profile?.id, profile?.role, profile?.is_active, profile?.availability_status]);
@@ -170,6 +188,7 @@ export function useAuth() {
     session,
     profile,
     loading,
+    isOffline, // ← NUEVO
     signIn,
     signUp,
     signOut,

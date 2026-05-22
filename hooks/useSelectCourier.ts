@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
 import { useAppModal } from '@/contexts/ModalContext';
+import { humanizeError } from '@/utils/humanizeError';
 
 export interface OrderMapData {
   id: string;
@@ -66,7 +67,6 @@ export function useSelectCourier(orderId: string | undefined) {
     if (!orderId) return;
     if (!silent) setLoading(true);
     try {
-      // Obtener coordenadas del pedido
       const { data: orderData, error: orderError } = await supabase
         .rpc('get_order_for_map', { p_order_id: orderId });
 
@@ -93,14 +93,12 @@ export function useSelectCourier(orderId: string | undefined) {
         delivery_location: deliveryCoords,
       });
 
-      // Calcular distancia total
       const tripDistance = haversineDistance(
         pickupCoords.latitude, pickupCoords.longitude,
         deliveryCoords.latitude, deliveryCoords.longitude
       );
       setTotalDistance(tripDistance);
 
-      // Obtener mensajeros cercanos
       const { data: couriersData, error: couriersError } = await supabase.rpc('nearby_couriers', {
         pickup_lat: pickupCoords.latitude,
         pickup_lng: pickupCoords.longitude,
@@ -110,7 +108,6 @@ export function useSelectCourier(orderId: string | undefined) {
 
       if (couriersError) throw couriersError;
 
-      // Añadir precio estimado
       const enriched = (couriersData as Courier[]).map((c) => ({
         ...c,
         estimated_price: +(tripDistance * c.price_per_km).toFixed(2),
@@ -118,7 +115,6 @@ export function useSelectCourier(orderId: string | undefined) {
 
       setCouriers(enriched);
 
-      // Limpiar filtros al cargar nuevos datos
       setFilters({
         vehicleType: null,
         maxPrice: null,
@@ -126,23 +122,17 @@ export function useSelectCourier(orderId: string | undefined) {
         sortBy: 'distance',
       });
     } catch (error: any) {
-      showModal({
-        title: 'Error',
-        message: error.message,
-        type: 'info',
-      });
+      showModal({ title: 'Error', message: humanizeError(error), type: 'info' });
       router.back();
     } finally {
       if (!silent) setLoading(false);
     }
   }, [orderId]);
 
-  // Carga inicial
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  // Suscripción a cambios en perfiles de mensajeros (recarga silenciosa)
   useEffect(() => {
     if (!orderId) return;
     const channel = supabase
@@ -151,10 +141,9 @@ export function useSelectCourier(orderId: string | undefined) {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'profiles' },
         (payload) => {
-          // Solo recargar si el cambio afecta a un mensajero que podría estar en la lista
           const updated = payload.new as any;
           if (updated?.role === 'courier') {
-            loadData(true); // recarga silenciosa
+            loadData(true);
           }
         }
       )
@@ -165,7 +154,6 @@ export function useSelectCourier(orderId: string | undefined) {
     };
   }, [orderId, loadData]);
 
-  // Aplicar filtros y ordenamiento
   const filteredCouriers = useMemo(() => {
     let result = [...couriers];
 
@@ -179,7 +167,6 @@ export function useSelectCourier(orderId: string | undefined) {
       result = result.filter((c) => (c.rating_average ?? 0) >= filters.minRating!);
     }
 
-    // Ordenar
     result.sort((a, b) => {
       switch (filters.sortBy) {
         case 'price':
@@ -209,11 +196,7 @@ export function useSelectCourier(orderId: string | undefined) {
       });
       router.replace({ pathname: '/(tabs)/order-detail', params: { order_id: orderId } });
     } catch (error: any) {
-      showModal({
-        title: 'Error',
-        message: error.message,
-        type: 'info',
-      });
+      showModal({ title: 'Error', message: humanizeError(error), type: 'info' });
     } finally {
       setSelecting(null);
     }

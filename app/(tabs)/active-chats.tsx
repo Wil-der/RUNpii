@@ -13,6 +13,7 @@ import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/use-auth';
+import { getOtherParticipantLabel } from '@/utils/orderRoles';
 
 interface ActiveChat {
   order_id: string;
@@ -47,12 +48,14 @@ export default function ActiveChatsScreen() {
         pickup_address: order.pickup_address,
         delivery_address: order.delivery_address,
         status: order.status,
-        other_participant: getOtherParticipant(order),
+        other_participant: getOtherParticipantLabel(order, user.id),
       }));
 
       setChats(formatted);
-    } catch (error: any) {
-      console.error('Error al cargar chats:', error.message);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error('Error al cargar chats:', error.message);
+      }
     } finally {
       if (!silent) setLoading(false);
     }
@@ -62,16 +65,24 @@ export default function ActiveChatsScreen() {
     loadChats();
   }, [loadChats]);
 
-  // Suscripción en tiempo real a cambios en orders (recarga silenciosa)
   useEffect(() => {
     if (!user) return;
+
+    // Filtro para recibir solo los pedidos donde el usuario es participante
+    const userFilter = `customer_id=eq.${user.id},courier_id=eq.${user.id},recipient_id=eq.${user.id}`;
+
     const channel = supabase
       .channel('active-chats-list')
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'orders' },
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'orders',
+          filter: userFilter,
+        },
         () => {
-          loadChats(true); // recarga silenciosa, sin parpadeo
+          loadChats(true);
         }
       )
       .subscribe();
@@ -85,15 +96,6 @@ export default function ActiveChatsScreen() {
     setRefreshing(true);
     loadChats();
     setRefreshing(false);
-  };
-
-  const getOtherParticipant = (order: any) => {
-    if (order.customer_id === user?.id) {
-      return order.courier_id ? 'Mensajero' : 'Destinatario';
-    }
-    if (order.courier_id === user?.id) return 'Cliente';
-    if (order.recipient_id === user?.id) return 'Cliente';
-    return 'Desconocido';
   };
 
   const renderChat = ({ item }: { item: ActiveChat }) => (

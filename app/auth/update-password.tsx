@@ -23,11 +23,15 @@ export default function UpdatePasswordScreen() {
 
   // Al montar, verificar que hay una sesión de recuperación activa
   useEffect(() => {
-    supabase.auth.onAuthStateChange((event) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event !== 'PASSWORD_RECOVERY') {
         router.replace('/auth/login');
       }
     });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const handleUpdatePassword = async () => {

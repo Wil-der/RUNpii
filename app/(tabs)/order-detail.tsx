@@ -1,5 +1,5 @@
 // app/(tabs)/order-detail.tsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -11,14 +11,27 @@ import {
   TextInput,
   Image,
 } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
 import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useOrderDetail } from '@/hooks/useOrderDetail';
 import OrderMap from '@/components/OrderMap';
 import { useAppModal } from '@/contexts/ModalContext';
 import { supabase } from '@/lib/supabase';
+import { useDeliveryPhoto } from '@/hooks/useDeliveryPhoto';
+
+type ChipAction = {
+  key: string;
+  label: string;
+  icon: keyof typeof Feather.glyphMap;
+  color: string;
+  onPress: () => void;
+};
+
+// Función para formatear el código con un espacio central
+const formatVerificationCode = (code: string): string => {
+  if (!code || code.length !== 6) return code;
+  return `${code.slice(0, 3)} ${code.slice(3)}`;
+};
 
 export default function OrderDetailScreen() {
   const { order_id } = useLocalSearchParams<{ order_id: string }>();
@@ -40,17 +53,15 @@ export default function OrderDetailScreen() {
     reload,
   } = useOrderDetail(order_id);
 
+  const { deliveryPhotoUri, deliveryPhotoBase64, isTakingPhoto, hasPhoto, takePhoto, pickFromGallery, clearPhoto } =
+    useDeliveryPhoto();
+
   const [refreshing, setRefreshing] = useState(false);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
   const [hasRated, setHasRated] = useState(false);
 
-  // Estados para la foto de entrega
-  const [deliveryPhotoUri, setDeliveryPhotoUri] = useState<string | null>(null);
-  const [deliveryPhotoBase64, setDeliveryPhotoBase64] = useState<string | null>(null);
-
-  // Verificar si el usuario ya valoró este pedido (para estados finalizados)
   useEffect(() => {
     if (order && ['delivered', 'returned'].includes(order.status) && profile) {
       supabase
@@ -74,64 +85,45 @@ export default function OrderDetailScreen() {
   const isAssignedToMe = order?.courier_id === profile?.id;
   const status = order?.status;
 
-  // Chips de acción principales (no destructivos)
-  const primaryChips: { key: string; label: string; icon: keyof typeof Feather.glyphMap; color: string; onPress: () => void }[] = [];
+  const primaryChips: ChipAction[] = useMemo(() => {
+    const chips: ChipAction[] = [];
+    if (!order) return chips;
 
-  if (order) {
     if (isCourier && status === 'awaiting_courier' && isAssignedToMe) {
-      primaryChips.push({ key: 'accept', label: 'Aceptar', icon: 'check', color: '#10B981', onPress: acceptOrder });
+      chips.push({ key: 'accept', label: 'Aceptar', icon: 'check', color: '#10B981', onPress: acceptOrder });
     }
     if (isCourier && status === 'assigned' && isAssignedToMe) {
-      primaryChips.push({ key: 'pickup', label: 'Recoger', icon: 'package', color: '#F7C925', onPress: confirmPickup });
+      chips.push({ key: 'pickup', label: 'Recoger', icon: 'package', color: '#F7C925', onPress: confirmPickup });
     }
     if (isCourier && ['picked_up', 'in_transit'].includes(status) && isAssignedToMe) {
-      primaryChips.push({ key: 'deliver', label: 'Entregar', icon: 'check-circle', color: '#F7C925', onPress: () => setShowDeliveryModal(true) });
-      primaryChips.push({ key: 'return', label: 'Devolver', icon: 'rotate-ccw', color: '#F59E0B', onPress: initiateReturn });
+      chips.push({ key: 'deliver', label: 'Entregar', icon: 'check-circle', color: '#F7C925', onPress: () => setShowDeliveryModal(true) });
+      chips.push({ key: 'return', label: 'Devolver', icon: 'rotate-ccw', color: '#F59E0B', onPress: initiateReturn });
     }
     if (isCourier && status === 'delivery_failed' && isAssignedToMe) {
-      primaryChips.push({ key: 'return', label: 'Iniciar devolución', icon: 'rotate-ccw', color: '#F59E0B', onPress: initiateReturn });
+      chips.push({ key: 'return', label: 'Iniciar devolución', icon: 'rotate-ccw', color: '#F59E0B', onPress: initiateReturn });
     }
     if (isCustomer && status === 'pending') {
-      primaryChips.push({ key: 'search', label: 'Buscar mensajeros', icon: 'search', color: '#F7C925', onPress: searchCouriers });
+      chips.push({ key: 'search', label: 'Buscar mensajeros', icon: 'search', color: '#F7C925', onPress: searchCouriers });
     }
-
     if ((isCustomer || isCourier) && ['assigned', 'picked_up', 'in_transit'].includes(status)) {
-      primaryChips.push({
-        key: 'chat',
-        label: 'Chat',
-        icon: 'message-circle',
-        color: '#3B82F6',
-        onPress: () => router.push({ pathname: '/(tabs)/chat', params: { order_id: order.id } }),
-      });
+      chips.push({ key: 'chat', label: 'Chat', icon: 'message-circle', color: '#3B82F6', onPress: () => router.push({ pathname: '/(tabs)/chat', params: { order_id: order.id } }) });
     }
-
     if ((isCustomer || isCourier) && ['delivered', 'returned'].includes(status) && !hasRated) {
-      const otherUserId =
-        profile?.id === order.customer_id
-          ? order.courier_id
-          : order.customer_id;
-
-      primaryChips.push({
-        key: 'rate',
-        label: 'Valorar',
-        icon: 'star',
-        color: '#F59E0B',
-        onPress: () =>
-          router.push({
-            pathname: '/(tabs)/rate',
-            params: { order_id: order.id, to_user_id: otherUserId },
-          }),
-      });
+      const otherUserId = profile?.id === order.customer_id ? order.courier_id : order.customer_id;
+      chips.push({ key: 'rate', label: 'Valorar', icon: 'star', color: '#F59E0B', onPress: () => router.push({ pathname: '/(tabs)/rate', params: { order_id: order.id, to_user_id: otherUserId } }) });
     }
-  }
+    return chips;
+  }, [order, isCourier, isCustomer, isAssignedToMe, status, hasRated, acceptOrder, confirmPickup, initiateReturn, searchCouriers]);
 
-  const destructiveActions: { key: string; label: string; icon: keyof typeof Feather.glyphMap; onPress: () => void }[] = [];
-  if (order) {
+  const destructiveActions: ChipAction[] = useMemo(() => {
+    const actions: ChipAction[] = [];
+    if (!order) return actions;
+
     if (isCourier && status === 'awaiting_courier' && isAssignedToMe) {
-      destructiveActions.push({ key: 'reject', label: 'Rechazar pedido', icon: 'x', onPress: rejectOrder });
+      actions.push({ key: 'reject', label: 'Rechazar pedido', icon: 'x', onPress: rejectOrder });
     }
     if (isCustomer && ['pending', 'awaiting_courier', 'assigned'].includes(status)) {
-      destructiveActions.push({
+      actions.push({
         key: 'cancel',
         label: 'Cancelar pedido',
         icon: 'slash',
@@ -147,55 +139,14 @@ export default function OrderDetailScreen() {
         },
       });
     }
-  }
-
-  const handleTakePhoto = async () => {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      showModal({ title: 'Permiso denegado', message: 'Se necesita acceso a la cámara.', type: 'info' });
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
-    if (result.canceled || !result.assets[0]) return;
-
-    const uri = result.assets[0].uri;
-    setDeliveryPhotoUri(uri);
-
-    // Convertir a base64 para enviar a la Edge Function
-    const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-    setDeliveryPhotoBase64(base64);
-  };
-
-  const handlePickGallery = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      showModal({ title: 'Permiso denegado', message: 'Se necesita acceso a la galería.', type: 'info' });
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
-    if (result.canceled || !result.assets[0]) return;
-
-    const uri = result.assets[0].uri;
-    setDeliveryPhotoUri(uri);
-
-    const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-    setDeliveryPhotoBase64(base64);
-  };
+    return actions;
+  }, [order, isCourier, isCustomer, isAssignedToMe, status, rejectOrder, cancelOrder]);
 
   const handleDelivery = () => {
-    if (!verificationCode.trim()) {
-      showModal({ title: 'Código requerido', message: 'Ingresa el código de verificación del destinatario.', type: 'info' });
-      return;
-    }
-    if (!deliveryPhotoBase64) {
-      showModal({ title: 'Foto requerida', message: 'Debes tomar una foto del comprobante de entrega.', type: 'info' });
-      return;
-    }
-    confirmDelivery(verificationCode, deliveryPhotoBase64);
+    confirmDelivery(verificationCode, deliveryPhotoBase64 ?? undefined);
     setShowDeliveryModal(false);
     setVerificationCode('');
-    setDeliveryPhotoUri(null);
-    setDeliveryPhotoBase64(null);
+    clearPhoto();
   };
 
   if (loading) {
@@ -223,7 +174,11 @@ export default function OrderDetailScreen() {
       />
 
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.replace('/(tabs)/explore')}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Volver atrás"
+        >
           <Feather name="arrow-left" size={22} color="#F7C925" />
         </TouchableOpacity>
         <Text style={styles.title}>Pedido</Text>
@@ -243,6 +198,9 @@ export default function OrderDetailScreen() {
               style={[styles.actionChip, { backgroundColor: chip.color }]}
               onPress={chip.onPress}
               disabled={actionLoading !== null}
+              accessibilityRole="button"
+              accessibilityLabel={chip.label}
+              accessibilityHint={`Pulsa para ${chip.label.toLowerCase()}`}
             >
               <Feather name={chip.icon} size={16} color="#FFFFFF" />
               <Text style={styles.actionChipText}>{chip.label}</Text>
@@ -260,6 +218,9 @@ export default function OrderDetailScreen() {
           style={styles.detailsToggle}
           onPress={() => setDetailsExpanded(!detailsExpanded)}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Detalles del pedido"
+          accessibilityHint="Pulsa para ver más información"
         >
           <View style={{ flex: 1 }}>
             <Text style={styles.detailsLine}>Recogida: {order.pickup_address}</Text>
@@ -301,11 +262,14 @@ export default function OrderDetailScreen() {
           </View>
         )}
 
-        {/* Código de verificación – visible SOLO para el destinatario (y NO para el mensajero del pedido) */}
-        {order.recipient_id === profile?.id && order.courier_id !== profile?.id && order.status === 'picked_up' && order.verification_code && (
+        {/* Código de verificación – visible para destinatario y cliente (NO mensajero) */}
+        {(order.recipient_id === profile?.id || order.customer_id === profile?.id) &&
+          order.courier_id !== profile?.id &&
+          order.status === 'picked_up' &&
+          order.verification_code && (
           <View style={styles.codeCard}>
             <Text style={styles.codeLabel}>Código de verificación</Text>
-            <Text style={styles.codeValue}>{order.verification_code}</Text>
+            <Text style={styles.codeValue}>{formatVerificationCode(order.verification_code)}</Text>
           </View>
         )}
 
@@ -324,6 +288,9 @@ export default function OrderDetailScreen() {
                 style={styles.destructiveButton}
                 onPress={action.onPress}
                 disabled={actionLoading !== null}
+                accessibilityRole="button"
+                accessibilityLabel={action.label}
+                accessibilityHint={`Pulsa para ${action.label.toLowerCase()}`}
               >
                 <Feather name={action.icon} size={16} color="#EF4444" />
                 <Text style={styles.destructiveText}>{action.label}</Text>
@@ -333,20 +300,32 @@ export default function OrderDetailScreen() {
         )}
       </ScrollView>
 
-      {/* Modal de entrega mejorado: foto + código */}
       {showDeliveryModal && (
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <Text style={styles.modalTitle}>Confirmar entrega</Text>
 
-            {/* Paso 1: tomar foto */}
-            {!deliveryPhotoUri ? (
+            {!hasPhoto ? (
               <View style={styles.photoStep}>
-                <TouchableOpacity style={styles.photoButton} onPress={handleTakePhoto}>
+                <TouchableOpacity
+                  style={styles.photoButton}
+                  onPress={takePhoto}
+                  disabled={isTakingPhoto}
+                  accessibilityRole="button"
+                  accessibilityLabel="Tomar foto"
+                  accessibilityHint="Abre la cámara para tomar una foto del comprobante"
+                >
                   <Feather name="camera" size={32} color="#F7C925" />
                   <Text style={styles.photoButtonText}>Tomar foto</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.photoButton} onPress={handlePickGallery}>
+                <TouchableOpacity
+                  style={styles.photoButton}
+                  onPress={pickFromGallery}
+                  disabled={isTakingPhoto}
+                  accessibilityRole="button"
+                  accessibilityLabel="Seleccionar de galería"
+                  accessibilityHint="Abre la galería para elegir una foto"
+                >
                   <Feather name="image" size={32} color="#F7C925" />
                   <Text style={styles.photoButtonText}>Galería</Text>
                 </TouchableOpacity>
@@ -354,14 +333,17 @@ export default function OrderDetailScreen() {
             ) : (
               <View style={styles.photoStep}>
                 <Image source={{ uri: deliveryPhotoUri }} style={styles.photoPreview} />
-                <TouchableOpacity onPress={() => { setDeliveryPhotoUri(null); setDeliveryPhotoBase64(null); }}>
+                <TouchableOpacity
+                  onPress={clearPhoto}
+                  accessibilityRole="button"
+                  accessibilityLabel="Eliminar foto"
+                >
                   <Text style={{ color: '#EF4444', fontFamily: 'Inter_500Medium', marginTop: 8 }}>Eliminar foto</Text>
                 </TouchableOpacity>
               </View>
             )}
 
-            {/* Paso 2: código de verificación (solo visible si ya hay foto) */}
-            {deliveryPhotoUri && (
+            {hasPhoto && (
               <TextInput
                 style={styles.codeInput}
                 value={verificationCode}
@@ -370,6 +352,7 @@ export default function OrderDetailScreen() {
                 keyboardType="number-pad"
                 maxLength={6}
                 autoFocus
+                accessibilityLabel="Código de verificación de 6 dígitos"
               />
             )}
 
@@ -377,22 +360,22 @@ export default function OrderDetailScreen() {
               <TouchableOpacity
                 style={[styles.modalButton, { backgroundColor: '#F7C925' }]}
                 onPress={handleDelivery}
-                disabled={actionLoading !== null || !deliveryPhotoUri}
+                disabled={actionLoading !== null || !hasPhoto}
+                accessibilityRole="button"
+                accessibilityLabel="Confirmar entrega"
+                accessibilityHint="Envía el código de verificación y la foto para completar la entrega"
               >
-                {actionLoading ? (
-                  <ActivityIndicator color="#1A1A1A" />
-                ) : (
-                  <Text style={styles.modalButtonText}>Confirmar</Text>
-                )}
+                {actionLoading ? <ActivityIndicator color="#1A1A1A" /> : <Text style={styles.modalButtonText}>Confirmar</Text>}
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalButton, { backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB' }]}
                 onPress={() => {
                   setShowDeliveryModal(false);
-                  setDeliveryPhotoUri(null);
-                  setDeliveryPhotoBase64(null);
+                  clearPhoto();
                   setVerificationCode('');
                 }}
+                accessibilityRole="button"
+                accessibilityLabel="Cancelar"
               >
                 <Text style={[styles.modalButtonText, { color: '#6B7280' }]}>Cancelar</Text>
               </TouchableOpacity>
@@ -431,11 +414,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     gap: 6,
   },
-  actionChipText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 14,
-    color: '#FFFFFF',
-  },
+  actionChipText: { fontFamily: 'Inter_600SemiBold', fontSize: 14, color: '#FFFFFF' },
   contentScroll: {
     paddingHorizontal: 16,
     paddingTop: 8,
@@ -472,12 +451,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     gap: 8,
   },
-  detailText: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 14,
-    color: '#6B7280',
-    flexShrink: 1,
-  },
+  detailText: { fontFamily: 'Inter_400Regular', fontSize: 14, color: '#6B7280', flexShrink: 1 },
   codeCard: {
     backgroundColor: '#F7C92520',
     borderRadius: 12,
@@ -494,12 +468,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   photoCard: { marginBottom: 12 },
-  sectionTitle: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 16,
-    color: '#1A1A1A',
-    marginBottom: 8,
-  },
+  sectionTitle: { fontFamily: 'Inter_600SemiBold', fontSize: 16, color: '#1A1A1A', marginBottom: 8 },
   deliveryPhoto: { width: '100%', height: 200, borderRadius: 12 },
   destructiveContainer: {
     marginTop: 20,
@@ -514,11 +483,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     gap: 8,
   },
-  destructiveText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 15,
-    color: '#EF4444',
-  },
+  destructiveText: { fontFamily: 'Inter_600SemiBold', fontSize: 15, color: '#EF4444' },
   modalOverlay: {
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
@@ -535,12 +500,7 @@ const styles = StyleSheet.create({
     maxWidth: 380,
     alignItems: 'center',
   },
-  modalTitle: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 20,
-    color: '#1A1A1A',
-    marginBottom: 16,
-  },
+  modalTitle: { fontFamily: 'Inter_700Bold', fontSize: 20, color: '#1A1A1A', marginBottom: 16 },
   photoStep: { alignItems: 'center', marginBottom: 16 },
   photoButton: {
     flexDirection: 'row',
@@ -570,20 +530,7 @@ const styles = StyleSheet.create({
     width: '100%',
     marginBottom: 20,
   },
-  modalActions: {
-    flexDirection: 'row',
-    gap: 12,
-    width: '100%',
-  },
-  modalButton: {
-    flex: 1,
-    borderRadius: 12,
-    padding: 14,
-    alignItems: 'center',
-  },
-  modalButtonText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 15,
-    color: '#1A1A1A',
-  },
+  modalActions: { flexDirection: 'row', gap: 12, width: '100%' },
+  modalButton: { flex: 1, borderRadius: 12, padding: 14, alignItems: 'center' },
+  modalButtonText: { fontFamily: 'Inter_600SemiBold', fontSize: 15, color: '#1A1A1A' },
 });

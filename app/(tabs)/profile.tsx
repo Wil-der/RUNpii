@@ -16,13 +16,15 @@ import { useAuth } from '@/hooks/use-auth';
 import { updateProfile, Profile } from '@/lib/supabase-operations';
 import { supabase } from '@/lib/supabase';
 import { useAppModal } from '@/contexts/ModalContext';
+import { useProfileContext } from '@/contexts/ProfileContext';
 import ProfileHeader from '@/components/ProfileHeader';
 import PersonalInfoCard from '@/components/PersonalInfoCard';
 import CourierInfoCard from '@/components/CourierInfoCard';
 import { useProfileImage } from '@/hooks/useProfileImage';
 
 export default function ProfileScreen() {
-  const { profile, user, signOut, refreshProfile } = useAuth();
+  const { user, signOut } = useAuth();
+  const { profile, refreshProfile } = useProfileContext();
   const { showModal } = useAppModal();
   const { pickAvatar, pickDoc, uploadingAvatar, uploadingDoc } = useProfileImage();
 
@@ -50,24 +52,116 @@ export default function ProfileScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refreshProfile?.();
+    await refreshProfile();
     setRefreshing(false);
   }, [refreshProfile]);
 
   const handleSaveProfile = async () => {
-    /* lógica existente */
+    if (!profile) return;
+    if (!form.full_name?.trim()) {
+      showModal({ title: 'Error', message: 'El nombre es obligatorio.', type: 'info' });
+      return;
+    }
+    try {
+      const updates: Partial<Profile> = {
+        full_name: form.full_name.trim(),
+        address: form.address?.trim() || null,
+        avatar_url: form.avatar_url || null,
+      };
+      if (profile.role === 'courier') {
+        if (!isVerified) {
+          updates.id_card_number = form.id_card_number?.trim() || null;
+        }
+        updates.vehicle_type = form.vehicle_type;
+        updates.max_package_size = form.max_package_size;
+        updates.max_weight_kg = form.max_weight_kg ?? null;
+        updates.price_per_km = form.price_per_km ?? null;
+      }
+      const { error } = await updateProfile(profile.id, updates);
+      if (error) throw error;
+      await refreshProfile();
+      setIsEditing(false);
+      showModal({ title: 'Actualizado', message: 'Perfil guardado correctamente.', type: 'info' });
+    } catch (e: any) {
+      showModal({ title: 'Error', message: e.message, type: 'info' });
+    }
+  };
+
+  const executeRoleSwitch = async (targetRole: string) => {
+    if (!profile) return;
+    setRoleSwitchLoading(true);
+    try {
+      const updates: Partial<Profile> = { role: targetRole as any };
+      if (targetRole === 'courier') {
+        updates.verification_status = 'pending';
+        updates.is_active = false;
+        updates.availability_status = 'offline';
+      } else {
+        updates.is_active = false;
+        updates.availability_status = 'offline';
+      }
+      await updateProfile(profile.id, updates);
+      await refreshProfile();
+      showModal({
+        title: 'Rol actualizado',
+        message: `Ahora eres ${targetRole === 'courier' ? 'Mensajero' : 'Cliente'}.`,
+        type: 'info',
+      });
+    } catch (e: any) {
+      showModal({ title: 'Error', message: e.message, type: 'info' });
+    } finally {
+      setRoleSwitchLoading(false);
+    }
   };
 
   const handleSwitchRole = () => {
-    /* lógica existente */
+    if (!profile) return;
+    const target = profile.role === 'customer' ? 'courier' : 'customer';
+    if (target === 'courier') {
+      showModal({
+        title: 'Convertirse en Mensajero',
+        message: 'Deberás completar la verificación para empezar a recibir pedidos.',
+        type: 'confirm',
+        confirmText: 'Continuar',
+        cancelText: 'Cancelar',
+        onConfirm: () => executeRoleSwitch(target),
+      });
+    } else {
+      supabase
+        .from('orders')
+        .select('id')
+        .eq('courier_id', profile.id)
+        .in('status', ['assigned', 'picked_up', 'in_transit'])
+        .then(({ data: active, error }) => {
+          if (error) {
+            showModal({ title: 'Error', message: 'No se pudo verificar.', type: 'info' });
+            return;
+          }
+          if (active && active.length > 0) {
+            showModal({
+              title: 'No disponible',
+              message: `Tienes ${active.length} pedido(s) activo(s). Finalízalos antes de cambiar.`,
+              type: 'info',
+            });
+          } else {
+            showModal({
+              title: 'Cambiar a Cliente',
+              message: 'Dejarás de recibir pedidos como mensajero.',
+              type: 'confirm',
+              confirmText: 'Cambiar',
+              cancelText: 'Cancelar',
+              onConfirm: () => executeRoleSwitch(target),
+            });
+          }
+        });
+    }
   };
 
-  // Cambiar disponibilidad manualmente (available / busy)
   const setAvailability = async (status: 'available' | 'busy') => {
     if (!profile) return;
     try {
       await updateProfile(profile.id, { availability_status: status });
-      await refreshProfile?.();
+      await refreshProfile();
     } catch (e: any) {
       showModal({ title: 'Error', message: e.message, type: 'info' });
     }
@@ -113,7 +207,6 @@ export default function ProfileScreen() {
           onPressAvatar={() => pickAvatar((url) => setForm((prev) => ({ ...prev, avatar_url: url })))}
         />
 
-        {/* Chips de acción horizontal */}
         <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}>
           {actionChips.map((chip) => (
             <TouchableOpacity
@@ -121,6 +214,9 @@ export default function ProfileScreen() {
               style={[styles.actionChip, { backgroundColor: chip.color }]}
               onPress={chip.onPress}
               disabled={roleSwitchLoading}
+              accessibilityRole="button"
+              accessibilityLabel={chip.label}
+              accessibilityHint={`Pulsa para ${chip.label.toLowerCase()}`}
             >
               <Feather name={chip.icon} size={16} color="#FFF" />
               <Text style={styles.actionChipText}>{chip.label}</Text>
@@ -162,53 +258,40 @@ export default function ProfileScreen() {
                 onWeightChange={(t) => setForm({ ...form, max_weight_kg: t ? parseFloat(t) : null })}
                 onPriceChange={(t) => setForm({ ...form, price_per_km: t ? parseFloat(t) : null })}
                 onPickDoc={(side) => pickDoc(side, (url, col) => setForm((prev) => ({ ...prev, [col]: url })))}
-                onToggleActive={() => {}} // ya no se usa, se mantiene por compatibilidad
+                onToggleActive={() => {}}
               />
             </View>
 
-            {/* Selector de disponibilidad (solo si está verificado) */}
             {isVerified && (
               <View style={styles.section}>
                 <View style={styles.card}>
                   <Text style={styles.cardTitle}>Disponibilidad</Text>
                   <View style={styles.availabilityRow}>
                     <TouchableOpacity
-                      style={[
-                        styles.availabilityChip,
-                        profile.availability_status === 'available' && styles.availabilityChipActive,
-                      ]}
+                      style={[styles.availabilityChip, profile.availability_status === 'available' && styles.availabilityChipActive]}
                       onPress={() => setAvailability('available')}
+                      accessibilityRole="button"
+                      accessibilityLabel="Disponible"
+                      accessibilityHint="Pulsa para ponerte disponible y recibir pedidos"
                     >
-                      <Text
-                        style={[
-                          styles.availabilityChipText,
-                          profile.availability_status === 'available' && styles.availabilityChipTextActive,
-                        ]}
-                      >
+                      <Text style={[styles.availabilityChipText, profile.availability_status === 'available' && styles.availabilityChipTextActive]}>
                         Disponible
                       </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[
-                        styles.availabilityChip,
-                        profile.availability_status === 'busy' && styles.availabilityChipActive,
-                      ]}
+                      style={[styles.availabilityChip, profile.availability_status === 'busy' && styles.availabilityChipActive]}
                       onPress={() => setAvailability('busy')}
+                      accessibilityRole="button"
+                      accessibilityLabel="Ocupado"
+                      accessibilityHint="Pulsa para ponerte ocupado y dejar de recibir pedidos"
                     >
-                      <Text
-                        style={[
-                          styles.availabilityChipText,
-                          profile.availability_status === 'busy' && styles.availabilityChipTextActive,
-                        ]}
-                      >
+                      <Text style={[styles.availabilityChipText, profile.availability_status === 'busy' && styles.availabilityChipTextActive]}>
                         Ocupado
                       </Text>
                     </TouchableOpacity>
                   </View>
                   <Text style={styles.availabilityHint}>
-                    {profile.availability_status === 'available'
-                      ? 'Estás recibiendo pedidos'
-                      : 'No estás recibiendo pedidos nuevos'}
+                    {profile.availability_status === 'available' ? 'Estás recibiendo pedidos' : 'No estás recibiendo pedidos nuevos'}
                   </Text>
                 </View>
               </View>
@@ -223,7 +306,13 @@ export default function ProfileScreen() {
         )}
 
         <View style={styles.destructiveContainer}>
-          <TouchableOpacity style={styles.destructiveButton} onPress={() => signOut()}>
+          <TouchableOpacity
+            style={styles.destructiveButton}
+            onPress={() => signOut()}
+            accessibilityRole="button"
+            accessibilityLabel="Cerrar sesión"
+            accessibilityHint="Pulsa para cerrar sesión en la aplicación"
+          >
             <Feather name="log-out" size={16} color="#EF4444" />
             <Text style={styles.destructiveText}>Cerrar sesión</Text>
           </TouchableOpacity>
@@ -239,56 +328,32 @@ const styles = StyleSheet.create({
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   section: { paddingHorizontal: 16, marginBottom: 16 },
   actionChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 18,
-    gap: 6,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 18, gap: 6,
   },
   actionChipText: { fontFamily: 'Inter_600SemiBold', fontSize: 14, color: '#FFFFFF' },
   card: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB', borderRadius: 12, padding: 16,
+    borderWidth: 1, borderColor: '#E5E7EB',
   },
   cardTitle: { fontFamily: 'Inter_600SemiBold', fontSize: 16, color: '#1A1A1A', marginBottom: 12 },
   availabilityRow: { flexDirection: 'row', gap: 12 },
   availabilityChip: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
+    flex: 1, paddingVertical: 12, borderRadius: 12,
+    borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#FFFFFF', alignItems: 'center',
   },
   availabilityChipActive: { backgroundColor: '#F7C925', borderColor: '#F7C925' },
   availabilityChipText: { fontFamily: 'Inter_500Medium', fontSize: 14, color: '#6B7280' },
   availabilityChipTextActive: { color: '#1A1A1A' },
   availabilityHint: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 13,
-    color: '#6B7280',
-    marginTop: 8,
-    textAlign: 'center',
+    fontFamily: 'Inter_400Regular', fontSize: 13, color: '#6B7280', marginTop: 8, textAlign: 'center',
   },
   hint: { fontFamily: 'Inter_400Regular', fontSize: 14, color: '#F59E0B', textAlign: 'center' },
   destructiveContainer: {
-    marginHorizontal: 16,
-    marginTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-    paddingTop: 16,
+    marginHorizontal: 16, marginTop: 20, borderTopWidth: 1, borderTopColor: '#E5E7EB', paddingTop: 16,
   },
   destructiveButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    gap: 8,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, gap: 8,
   },
   destructiveText: { fontFamily: 'Inter_600SemiBold', fontSize: 15, color: '#EF4444' },
 });

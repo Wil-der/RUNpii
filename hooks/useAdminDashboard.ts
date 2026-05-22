@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAppModal } from '@/contexts/ModalContext';
+import { humanizeError } from '@/utils/humanizeError';
 
 export interface AdminMetrics {
   totalOrders: number;
@@ -37,7 +38,6 @@ export function useAdminDashboard() {
   const loadDashboard = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      // Obtener métricas con una sola consulta por métrica (simple y eficiente)
       const [
         { count: totalOrders },
         { count: activeOrders },
@@ -69,14 +69,13 @@ export function useAdminDashboard() {
         activeOrders: activeOrders || 0,
         activeCouriers: activeCouriers || 0,
         pendingVerifications: pendingVerifications || 0,
-        estimatedRevenue: +(totalRevenue * 0.1).toFixed(2), // 10% comisión
+        estimatedRevenue: +(totalRevenue * 0.1).toFixed(2),
         averageRating: +avgRating.toFixed(1),
       });
 
-      // Cargar mensajeros según filtro
       await loadCouriers(filter, true);
     } catch (error: any) {
-      showModal({ title: 'Error', message: error.message, type: 'info' });
+      showModal({ title: 'Error', message: humanizeError(error), type: 'info' });
     } finally {
       if (!silent) setLoading(false);
     }
@@ -85,7 +84,6 @@ export function useAdminDashboard() {
   const loadCouriers = useCallback(async (statusFilter: string, silent = false) => {
     if (!silent) setLoading(true);
     try {
-      // Obtener mensajeros con el filtro de verificación
       const { data: couriersData, error } = await supabase
         .from('profiles')
         .select('id, full_name, verification_status, id_card_number, id_card_front_url, id_card_back_url, vehicle_type, created_at, rating_average, total_ratings')
@@ -96,7 +94,7 @@ export function useAdminDashboard() {
       if (error) throw error;
       setCouriers(couriersData || []);
     } catch (error: any) {
-      showModal({ title: 'Error', message: error.message, type: 'info' });
+      showModal({ title: 'Error', message: humanizeError(error), type: 'info' });
     } finally {
       if (!silent) setLoading(false);
     }
@@ -129,16 +127,13 @@ export function useAdminDashboard() {
 
       showModal({
         title: approved ? 'Mensajero aprobado' : 'Mensajero rechazado',
-        message: approved
-          ? 'El mensajero ya puede recibir pedidos.'
-          : 'El mensajero ha sido rechazado.',
+        message: approved ? 'El mensajero ya puede recibir pedidos.' : 'El mensajero ha sido rechazado.',
         type: 'info',
       });
 
-      // Recargar datos
       await loadDashboard(true);
     } catch (error: any) {
-      showModal({ title: 'Error', message: error.message, type: 'info' });
+      showModal({ title: 'Error', message: humanizeError(error), type: 'info' });
     } finally {
       setActionLoading(null);
     }

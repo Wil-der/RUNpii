@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Feather } from '@expo/vector-icons';
 import { useAppModal } from '@/contexts/ModalContext';
+import { useRateLimit } from '@/hooks/useRateLimit';
 
 type Role = 'customer' | 'courier';
 
@@ -33,6 +34,7 @@ export default function RegisterScreen() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const router = useRouter();
   const { showModal } = useAppModal();
+  const { locked, remainingSeconds, recordFailedAttempt, resetAttempts } = useRateLimit();
 
   const pickAvatar = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -60,25 +62,18 @@ export default function RegisterScreen() {
   };
 
   const handleRegister = async () => {
-    if (!validate()) return;
+    if (!validate() || locked) return;
     setLoading(true);
 
-    const metadata: any = {
+    const metadata: Record<string, unknown> = {
       full_name: fullName,
       role,
       id_card_number: idCardNumber,
       vehicle_type: vehicleType || null,
     };
 
-    if (avatarUri) {
-      try {
-        const response = await fetch(avatarUri);
-        const blob = await response.blob();
-        const arrayBuffer = await blob.arrayBuffer();
-      } catch (error) {
-        console.error('Error uploading avatar:', error);
-      }
-    }
+    // La subida del avatar se realiza después, desde el perfil.
+    // Aquí solo se conserva la vista previa de la imagen seleccionada.
 
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -89,10 +84,13 @@ export default function RegisterScreen() {
     });
 
     if (error) {
+      await recordFailedAttempt();
       showModal({ title: 'Error de registro', message: error.message, type: 'info' });
       setLoading(false);
       return;
     }
+
+    await resetAttempts();
 
     if (data.user) {
       router.replace('/auth/verify-email');
@@ -135,7 +133,6 @@ export default function RegisterScreen() {
         </View>
 
         <View style={styles.form}>
-          {/* ... resto de campos (igual que antes) ... */}
           <View style={styles.inputWrapper}>
             <Feather name="user" size={20} color="#6B7280" style={styles.inputIcon} />
             <TextInput
@@ -145,6 +142,7 @@ export default function RegisterScreen() {
               value={fullName}
               onChangeText={(text) => { setFullName(text); setErrors({ ...errors, fullName: '' }); }}
               autoCapitalize="words"
+              editable={!locked}
             />
           </View>
           {errors.fullName ? <Text style={styles.errorText}>{errors.fullName}</Text> : null}
@@ -159,6 +157,7 @@ export default function RegisterScreen() {
               onChangeText={(text) => { setEmail(text); setErrors({ ...errors, email: '' }); }}
               autoCapitalize="none"
               keyboardType="email-address"
+              editable={!locked}
             />
           </View>
           {errors.email ? <Text style={styles.errorText}>{errors.email}</Text> : null}
@@ -172,6 +171,7 @@ export default function RegisterScreen() {
               value={password}
               onChangeText={(text) => { setPassword(text); setErrors({ ...errors, password: '' }); }}
               secureTextEntry
+              editable={!locked}
             />
           </View>
           {errors.password ? <Text style={styles.errorText}>{errors.password}</Text> : null}
@@ -185,15 +185,23 @@ export default function RegisterScreen() {
               value={confirmPassword}
               onChangeText={(text) => { setConfirmPassword(text); setErrors({ ...errors, confirmPassword: '' }); }}
               secureTextEntry
+              editable={!locked}
             />
           </View>
           {errors.confirmPassword ? <Text style={styles.errorText}>{errors.confirmPassword}</Text> : null}
+
+          {locked && (
+            <Text style={styles.lockoutText}>
+              Demasiados intentos. Reintenta en {remainingSeconds} s.
+            </Text>
+          )}
 
           <Text style={styles.label}>Tipo de cuenta</Text>
           <View style={styles.roleSelector}>
             <Pressable
               style={[styles.roleButton, role === 'customer' && styles.roleButtonActive]}
               onPress={() => setRole('customer')}
+              disabled={locked}
             >
               <Feather name="user" size={24} color={role === 'customer' ? '#1A1A1A' : '#6B7280'} />
               <Text style={[styles.roleButtonText, role === 'customer' && styles.roleButtonTextActive]}>
@@ -203,6 +211,7 @@ export default function RegisterScreen() {
             <Pressable
               style={[styles.roleButton, role === 'courier' && styles.roleButtonActive]}
               onPress={() => setRole('courier')}
+              disabled={locked}
             >
               <Feather name="truck" size={24} color={role === 'courier' ? '#1A1A1A' : '#6B7280'} />
               <Text style={[styles.roleButtonText, role === 'courier' && styles.roleButtonTextActive]}>
@@ -222,6 +231,7 @@ export default function RegisterScreen() {
                   value={idCardNumber}
                   onChangeText={(text) => { setIdCardNumber(text); setErrors({ ...errors, idCardNumber: '' }); }}
                   autoCapitalize="none"
+                  editable={!locked}
                 />
               </View>
               {errors.idCardNumber ? <Text style={styles.errorText}>{errors.idCardNumber}</Text> : null}
@@ -233,6 +243,7 @@ export default function RegisterScreen() {
                     key={v}
                     style={[styles.optionChip, vehicleType === v && styles.optionChipActive]}
                     onPress={() => setVehicleType(v)}
+                    disabled={locked}
                   >
                     <Text style={[styles.optionChipText, vehicleType === v && styles.optionChipTextActive]}>
                       {v === 'bicycle' ? '🚲 Bicicleta' :
@@ -247,14 +258,16 @@ export default function RegisterScreen() {
           )}
 
           <Pressable
-            style={[styles.primaryButton, loading && styles.primaryButtonDisabled]}
+            style={[styles.primaryButton, (loading || locked) && styles.primaryButtonDisabled]}
             onPress={handleRegister}
-            disabled={loading}
+            disabled={loading || locked}
           >
             {loading ? (
               <ActivityIndicator color="#1A1A1A" />
             ) : (
-              <Text style={styles.primaryButtonText}>Crear cuenta</Text>
+              <Text style={styles.primaryButtonText}>
+                {locked ? `Bloqueado (${remainingSeconds}s)` : 'Crear cuenta'}
+              </Text>
             )}
           </Pressable>
 
@@ -292,6 +305,12 @@ const styles = StyleSheet.create({
   input: { flex: 1, fontFamily: 'Inter_400Regular', fontSize: 16, color: '#1A1A1A', paddingVertical: 14 },
   inputError: { borderColor: '#EF4444', borderWidth: 1, borderRadius: 12 },
   errorText: { fontFamily: 'Inter_400Regular', fontSize: 12, color: '#EF4444', marginTop: -8, marginLeft: 4 },
+  lockoutText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 14,
+    color: '#EF4444',
+    textAlign: 'center',
+  },
   label: { fontFamily: 'Inter_600SemiBold', fontSize: 14, color: '#1A1A1A', marginTop: 8 },
   roleSelector: { flexDirection: 'row', gap: 12 },
   roleButton: {

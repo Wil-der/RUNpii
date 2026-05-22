@@ -18,14 +18,14 @@ import ChatMessage from '@/components/ChatMessage';
 import ImagePickerButton from '@/components/ImagePickerButton';
 import { useAppModal } from '@/contexts/ModalContext';
 import { Image } from 'react-native';
-import { useAuth } from '@/hooks/use-auth';   // <-- AÑADIR
+import { useAuth } from '@/hooks/use-auth';
 
 export default function ChatScreen() {
   const { order_id } = useLocalSearchParams<{ order_id: string }>();
   const router = useRouter();
   const { showModal } = useAppModal();
   const { messages, loading, sendText, sendImage } = useChat(order_id);
-  const { profile } = useAuth();               // <-- AÑADIR (faltaba)
+  const { profile } = useAuth();
 
   const [newMessage, setNewMessage] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -51,7 +51,7 @@ export default function ChatScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}   // <-- padding en ambos
+      behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
     >
       {/* Cabecera */}
@@ -71,12 +71,17 @@ export default function ChatScreen() {
           renderItem={({ item }) => (
             <ChatMessage
               item={item}
-              isMine={item.sender_id === profile?.id}   // ahora profile existe
+              isMine={item.sender_id === profile?.id}
               onImagePress={setFullscreenImage}
             />
           )}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.messageList}
+          keyboardShouldPersistTaps="handled"
+          windowSize={10}
+          maxToRenderPerBatch={10}
+          initialNumToRender={15}
+          removeClippedSubviews={true}
           ListEmptyComponent={
             <View style={styles.empty}>
               <Feather name="message-circle" size={40} color="#ccc" />
@@ -134,7 +139,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
   },
   title: { fontFamily: 'Inter_700Bold', fontSize: 20, color: '#1A1A1A' },
-  content: { flex: 1 },   // <-- nuevo contenedor
+  content: { flex: 1 },
   messageList: { paddingHorizontal: 16, paddingVertical: 12, flexGrow: 1 },
   empty: { alignItems: 'center', marginTop: 40 },
   emptyText: { fontFamily: 'Inter_400Regular', fontSize: 14, color: '#6B7280', marginTop: 8 },
@@ -142,7 +147,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'flex-end',
     paddingHorizontal: 16, paddingVertical: 10,
     borderTopWidth: 1, borderTopColor: '#E5E7EB', gap: 8,
-    backgroundColor: '#FFFFFF',   // para que no se vea transparencia
+    backgroundColor: '#FFFFFF',
   },
   textInput: {
     flex: 1,

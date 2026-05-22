@@ -16,32 +16,33 @@ import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Feather } from '@expo/vector-icons';
 import { useAppModal } from '@/contexts/ModalContext';
+import { useRateLimit } from '@/hooks/useRateLimit';
 
-  const REMEMBER_KEY = '@runpii_remembered_email';
+const REMEMBER_KEY = '@runpii_remembered_email';
 
-  export default function LoginScreen() {
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [rememberMe, setRememberMe] = useState(false);
-    const [loading, setLoading] = useState(false);
-    const [emailError, setEmailError] = useState('');
-    const [passwordError, setPasswordError] = useState('');
-    const router = useRouter();
-    const { showModal } = useAppModal();
+export default function LoginScreen() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [emailError, setEmailError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const router = useRouter();
+  const { showModal } = useAppModal();
+  const { locked, remainingSeconds, recordFailedAttempt, resetAttempts } = useRateLimit();
 
-    // Cargar email guardado al montar (solo email, nunca contraseña)
-    useEffect(() => {
-      (async () => {
-        try {
-          const stored = await AsyncStorage.getItem(REMEMBER_KEY);
-          if (stored) {
-            const { email: savedEmail } = JSON.parse(stored);
-            setEmail(savedEmail || '');
-            setRememberMe(true);
-          }
-        } catch {}
-      })();
-    }, []);
+  useEffect(() => {
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(REMEMBER_KEY);
+        if (stored) {
+          const { email: savedEmail } = JSON.parse(stored);
+          setEmail(savedEmail || '');
+          setRememberMe(true);
+        }
+      } catch {}
+    })();
+  }, []);
 
   const validate = () => {
     let valid = true;
@@ -65,13 +66,14 @@ import { useAppModal } from '@/contexts/ModalContext';
   };
 
   const handleLogin = async () => {
-    if (!validate()) return;
+    if (!validate() || locked) return;
 
     setLoading(true);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
 
     if (error) {
+      await recordFailedAttempt();
       showModal({
         title: 'Error de inicio de sesión',
         message: error.message,
@@ -80,7 +82,9 @@ import { useAppModal } from '@/contexts/ModalContext';
       return;
     }
 
-    // Guardar o limpiar credenciales según "Recuérdame"
+    // Éxito: limpiar bloqueos
+    await resetAttempts();
+
     try {
       if (rememberMe) {
         await AsyncStorage.setItem(REMEMBER_KEY, JSON.stringify({ email }));
@@ -103,20 +107,16 @@ import { useAppModal } from '@/contexts/ModalContext';
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
     >
       <View style={styles.inner}>
-        {/* Botón para volver a la landing */}
         <Pressable style={styles.backButton} onPress={() => router.back()}>
           <Feather name="arrow-left" size={24} color="#1A1A1A" />
         </Pressable>
 
-        {/* Encabezado */}
         <View style={styles.header}>
           <Text style={styles.title}>Bienvenido de nuevo</Text>
           <Text style={styles.subtitle}>Inicia sesión para continuar</Text>
         </View>
 
-        {/* Formulario */}
         <View style={styles.form}>
-          {/* Email */}
           <View style={styles.inputWrapper}>
             <Feather name="mail" size={20} color="#6B7280" style={styles.inputIcon} />
             <TextInput
@@ -130,11 +130,11 @@ import { useAppModal } from '@/contexts/ModalContext';
               }}
               autoCapitalize="none"
               keyboardType="email-address"
+              editable={!locked}
             />
           </View>
           {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
 
-          {/* Contraseña */}
           <View style={styles.inputWrapper}>
             <Feather name="lock" size={20} color="#6B7280" style={styles.inputIcon} />
             <TextInput
@@ -147,31 +147,39 @@ import { useAppModal } from '@/contexts/ModalContext';
                 setPasswordError('');
               }}
               secureTextEntry
+              editable={!locked}
             />
           </View>
           {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
 
-          {/* Recuérdame */}
+          {locked && (
+            <Text style={styles.lockoutText}>
+              Demasiados intentos. Reintenta en {remainingSeconds} s.
+            </Text>
+          )}
+
           <View style={styles.rememberRow}>
             <Switch
               value={rememberMe}
               onValueChange={setRememberMe}
               trackColor={{ false: '#ccc', true: '#F7C925' }}
               thumbColor={rememberMe ? '#FFF' : '#FFF'}
+              disabled={locked}
             />
             <Text style={styles.rememberText}>Recuérdame</Text>
           </View>
 
-          {/* Botón de inicio de sesión */}
           <Pressable
-            style={[styles.primaryButton, loading && styles.primaryButtonDisabled]}
+            style={[styles.primaryButton, (loading || locked) && styles.primaryButtonDisabled]}
             onPress={handleLogin}
-            disabled={loading}
+            disabled={loading || locked}
           >
             {loading ? (
               <ActivityIndicator color="#1A1A1A" />
             ) : (
-              <Text style={styles.primaryButtonText}>Iniciar sesión</Text>
+              <Text style={styles.primaryButtonText}>
+                {locked ? `Bloqueado (${remainingSeconds}s)` : 'Iniciar sesión'}
+              </Text>
             )}
           </Pressable>
         </View>
@@ -180,7 +188,6 @@ import { useAppModal } from '@/contexts/ModalContext';
           <Text style={styles.linkText}>¿Olvidaste tu contraseña?</Text>
         </Pressable>
 
-        {/* Enlace a registro */}
         <Pressable onPress={() => router.push('/auth/register')}>
           <Text style={styles.linkText}>
             ¿No tienes cuenta? <Text style={styles.linkHighlight}>Regístrate</Text>
@@ -257,6 +264,12 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     marginTop: -8,
     marginLeft: 4,
+  },
+  lockoutText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 14,
+    color: '#EF4444',
+    textAlign: 'center',
   },
   rememberRow: {
     flexDirection: 'row',

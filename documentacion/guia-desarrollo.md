@@ -1,9 +1,6 @@
-## 📄 `documentacion/guia-desarrollo.md`
-
-```markdown
 # Guía de desarrollo
 
-**Última actualización:** 2026-05-19
+**Última actualización:** 2026-05-22
 
 Este documento te permite levantar el proyecto RUNpii en local y empezar a desarrollar.
 
@@ -24,7 +21,7 @@ Este documento te permite levantar el proyecto RUNpii en local y empezar a desar
    ```
 3. Instala las dependencias nativas requeridas:
    ```bash
-   npx expo install expo-location react-native-maps expo-image-picker @expo/vector-icons @expo-google-fonts/inter react-native-safe-area-context expo-image-manipulator @react-native-async-storage/async-storage
+   npx expo install expo-location react-native-maps expo-image-picker @expo/vector-icons @expo-google-fonts/inter react-native-safe-area-context expo-image-manipulator @react-native-async-storage/async-storage @react-native-community/netinfo @maplibre/maplibre-react-native expo-splash-screen
    ```
 4. Vincula el proyecto remoto de Supabase (necesitas el `project-ref`):
    ```bash
@@ -50,6 +47,9 @@ Este documento te permite levantar el proyecto RUNpii en local y empezar a desar
 ├── components/         # Componentes reutilizables
 ├── hooks/              # Hooks personalizados (useAuth, etc.)
 ├── lib/                # Cliente de Supabase y operaciones
+├── utils/              # Utilidades (orderRoles, humanizeError, etc.)
+├── constants/          # Constantes (api, mapConfig, etc.)
+├── contexts/           # Contextos de React (Modal, Profile, etc.)
 ├── documentacion/      # Documentación del proyecto
 └── app.json            # Configuración de Expo
 ```
@@ -128,6 +128,7 @@ Para mantener el código mantenible, cada funcionalidad se divide en:
 
 - **hooks/** → lógica de negocio y estado (ej. `useChat.ts`, `useSelectCourier.ts`).
 - **components/** → componentes visuales reutilizables (ej. `ChatMessage.tsx`, `CourierCard.tsx`).
+- **utils/** → funciones puras y helpers (ej. `orderRoles.ts`, `humanizeError.ts`).
 - **app/** → pantallas que orquestan hooks y componentes.
 
 Las notificaciones y confirmaciones usan `useAppModal` en lugar de `Alert.alert` para mantener un estilo visual coherente.
@@ -141,7 +142,32 @@ Antes de subir a Supabase Storage, se usa `expo-image-manipulator` con los sigui
 | Avatar | 512 px | 0.7 | JPEG |
 | Documentos | 2048 px | 0.8 | JPEG |
 | Chat | 1024 px | 0.7 | JPEG |
-| Entrega (futuro) | 1280 px | 0.75 | JPEG |
+| Entrega | 1280 px | 0.75 | JPEG |
+
+## Paginación en listas
+
+- `useOrders` carga los pedidos en lotes de 20, con soporte para "cargar más".
+- `useChat` carga los mensajes en lotes de 50, con soporte para cargar mensajes anteriores.
+
+## Manejo de errores
+
+- Todos los hooks principales exponen un estado `error` y muestran un modal al usuario cuando ocurre un fallo.
+- Se utiliza el helper `humanizeError` en `utils/humanizeError.ts` para traducir los mensajes técnicos de Supabase a frases comprensibles para el usuario final.
+
+## Constantes de timeout
+
+Los tiempos de espera para peticiones de red están centralizados en `constants/api.ts`:
+
+```typescript
+export const API_TIMEOUTS = {
+  FIND_RECIPIENT: 10000,
+  REVERSE_GEOCODE: 5000,
+} as const;
+```
+
+## Carga de fuentes
+
+La app utiliza `expo-splash-screen` para mantener el splash visible hasta que las fuentes Inter estén completamente cargadas y la sesión de autenticación esté verificada, evitando el flash de texto sin fuente.
 
 ## Variables de entorno
 

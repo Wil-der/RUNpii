@@ -21,6 +21,13 @@ import { MAP_STYLE } from '@/lib/mapConfig';
 
 MapLibreGL.setAccessToken(null);
 
+const VEHICLE_TYPES = ['bicycle', 'motorcycle', 'car', 'van', 'truck'] as const;
+const SORT_OPTIONS: { value: CourierFilters['sortBy']; label: string }[] = [
+  { value: 'distance', label: 'Distancia' },
+  { value: 'price', label: 'Precio' },
+  { value: 'rating', label: 'Valoración' },
+];
+
 export default function SelectCourierScreen() {
   const { order_id } = useLocalSearchParams<{ order_id: string }>();
   const router = useRouter();
@@ -105,14 +112,6 @@ export default function SelectCourierScreen() {
     [highlightedId, selecting],
   );
 
-  const vehicleTypes = ['bicycle', 'motorcycle', 'car', 'van', 'truck'];
-  const sortOptions: { value: CourierFilters['sortBy']; label: string }[] = [
-    { value: 'distance', label: 'Distancia' },
-    { value: 'price', label: 'Precio' },
-    { value: 'rating', label: 'Valoración' },
-  ];
-
-  // GeoJSON para la línea recogida → entrega
   const routeLineGeoJSON = order?.pickup_location && order?.delivery_location
     ? {
         type: 'Feature' as const,
@@ -140,7 +139,6 @@ export default function SelectCourierScreen() {
 
   return (
     <View style={styles.container}>
-      {/* ===== Mapa ===== */}
       <View style={styles.mapContainer}>
         <MapLibreGL.MapView
           style={styles.map}
@@ -152,15 +150,11 @@ export default function SelectCourierScreen() {
             ref={cameraRef}
             defaultSettings={
               pickupCoords
-                ? {
-                    centerCoordinate: [pickupCoords.longitude, pickupCoords.latitude],
-                    zoomLevel: 12,
-                  }
+                ? { centerCoordinate: [pickupCoords.longitude, pickupCoords.latitude], zoomLevel: 12 }
                 : undefined
             }
           />
 
-          {/* Línea recogida → entrega */}
           {routeLineGeoJSON && (
             <MapLibreGL.ShapeSource id="routeLine" shape={routeLineGeoJSON}>
               <MapLibreGL.LineLayer
@@ -175,7 +169,6 @@ export default function SelectCourierScreen() {
             </MapLibreGL.ShapeSource>
           )}
 
-          {/* Marcador recogida */}
           {pickupCoords && (
             <MapLibreGL.PointAnnotation
               id="pickup"
@@ -188,7 +181,6 @@ export default function SelectCourierScreen() {
             </MapLibreGL.PointAnnotation>
           )}
 
-          {/* Marcador entrega */}
           {deliveryCoords && (
             <MapLibreGL.PointAnnotation
               id="delivery"
@@ -201,7 +193,6 @@ export default function SelectCourierScreen() {
             </MapLibreGL.PointAnnotation>
           )}
 
-          {/* Marcadores mensajeros */}
           {filteredCouriers.map((c) => (
             <MapLibreGL.PointAnnotation
               key={c.courier_id}
@@ -210,36 +201,47 @@ export default function SelectCourierScreen() {
               title={c.full_name}
               onSelected={() => handleMarkerPress(c)}
             >
-              <View style={[
-                styles.marker,
-                {
-                  backgroundColor: highlightedId === c.courier_id ? '#8B5CF6' : '#10B981',
-                  transform: [{ scale: highlightedId === c.courier_id ? 1.2 : 1 }],
-                },
-              ]}>
+              <View
+                style={[
+                  styles.marker,
+                  {
+                    backgroundColor: highlightedId === c.courier_id ? '#8B5CF6' : '#10B981',
+                    transform: [{ scale: highlightedId === c.courier_id ? 1.2 : 1 }],
+                  },
+                ]}
+              >
                 <Text style={styles.markerText}>M</Text>
               </View>
             </MapLibreGL.PointAnnotation>
           ))}
         </MapLibreGL.MapView>
 
-        <TouchableOpacity style={styles.fitButton} onPress={fitMapToElements}>
+        <TouchableOpacity
+          style={styles.fitButton}
+          onPress={fitMapToElements}
+          accessibilityRole="button"
+          accessibilityLabel="Ajustar vista"
+          accessibilityHint="Ajusta el mapa para mostrar todos los puntos"
+        >
           <Feather name="maximize" size={18} color="#1A1A1A" />
         </TouchableOpacity>
       </View>
 
-      {/* ===== Encabezado ===== */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <TouchableOpacity
-            onPress={() =>
-              router.replace({ pathname: '/(tabs)/order-detail', params: { order_id } })
-            }
+            onPress={() => router.replace({ pathname: '/(tabs)/order-detail', params: { order_id } })}
+            accessibilityRole="button"
+            accessibilityLabel="Volver al pedido"
           >
             <Feather name="arrow-left" size={22} color="#F7C925" />
           </TouchableOpacity>
           <Text style={styles.title}>Mensajeros</Text>
-          <TouchableOpacity onPress={reload}>
+          <TouchableOpacity
+            onPress={reload}
+            accessibilityRole="button"
+            accessibilityLabel="Actualizar lista"
+          >
             <Feather name="refresh-cw" size={20} color="#F7C925" />
           </TouchableOpacity>
         </View>
@@ -248,49 +250,42 @@ export default function SelectCourierScreen() {
         </Text>
       </View>
 
-      {/* ===== Filtros ===== */}
       <View style={styles.filtersContainer}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterScroll}
-        >
-          {vehicleTypes.map((v) => (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
+          {VEHICLE_TYPES.map((v) => (
             <TouchableOpacity
               key={v}
               style={[styles.chip, filters.vehicleType === v && styles.chipActive]}
-              onPress={() =>
-                setFilters({ ...filters, vehicleType: filters.vehicleType === v ? null : v })
-              }
+              onPress={() => setFilters({ ...filters, vehicleType: filters.vehicleType === v ? null : v })}
+              accessibilityRole="button"
+              accessibilityLabel={`Filtrar por ${v}`}
             >
-              <Text style={[styles.chipText, filters.vehicleType === v && styles.chipTextActive]}>
-                {v}
-              </Text>
+              <Text style={[styles.chipText, filters.vehicleType === v && styles.chipTextActive]}>{v}</Text>
             </TouchableOpacity>
           ))}
 
           <View style={styles.separator} />
 
-          {sortOptions.map((opt) => (
+          {SORT_OPTIONS.map((opt) => (
             <TouchableOpacity
               key={opt.value}
               style={[styles.chip, filters.sortBy === opt.value && styles.chipActive]}
               onPress={() => setFilters({ ...filters, sortBy: opt.value })}
+              accessibilityRole="button"
+              accessibilityLabel={`Ordenar por ${opt.label}`}
             >
-              <Text style={[styles.chipText, filters.sortBy === opt.value && styles.chipTextActive]}>
-                {opt.label}
-              </Text>
+              <Text style={[styles.chipText, filters.sortBy === opt.value && styles.chipTextActive]}>{opt.label}</Text>
             </TouchableOpacity>
           ))}
 
           <TouchableOpacity
             style={[styles.chip, showPriceRating && styles.chipActive]}
             onPress={() => setShowPriceRating(!showPriceRating)}
+            accessibilityRole="button"
+            accessibilityLabel="Ajustar precio y valoración"
           >
             <Feather name="dollar-sign" size={15} color={showPriceRating ? '#1A1A1A' : '#6B7280'} />
-            <Text style={[styles.chipText, showPriceRating && styles.chipTextActive]}>
-              Precio / Rating
-            </Text>
+            <Text style={[styles.chipText, showPriceRating && styles.chipTextActive]}>Precio / Rating</Text>
           </TouchableOpacity>
         </ScrollView>
 
@@ -303,6 +298,7 @@ export default function SelectCourierScreen() {
               placeholderTextColor="#9CA3AF"
               value={filters.maxPrice?.toString() ?? ''}
               onChangeText={(t) => setFilters({ ...filters, maxPrice: t ? parseFloat(t) : null })}
+              accessibilityLabel="Precio máximo"
             />
             <TextInput
               style={styles.numericInput}
@@ -311,15 +307,19 @@ export default function SelectCourierScreen() {
               placeholderTextColor="#9CA3AF"
               value={filters.minRating?.toString() ?? ''}
               onChangeText={(t) => setFilters({ ...filters, minRating: t ? parseFloat(t) : null })}
+              accessibilityLabel="Valoración mínima"
             />
-            <TouchableOpacity onPress={() => setFilters({ ...filters, maxPrice: null, minRating: null })}>
+            <TouchableOpacity
+              onPress={() => setFilters({ ...filters, maxPrice: null, minRating: null })}
+              accessibilityRole="button"
+              accessibilityLabel="Limpiar filtros de precio y rating"
+            >
               <Feather name="x-circle" size={22} color="#9CA3AF" />
             </TouchableOpacity>
           </View>
         )}
       </View>
 
-      {/* ===== Lista de mensajeros ===== */}
       <FlatList
         ref={listRef}
         data={filteredCouriers}
@@ -327,18 +327,11 @@ export default function SelectCourierScreen() {
         keyExtractor={(item) => item.courier_id}
         contentContainerStyle={styles.list}
         style={{ flex: 1 }}
-        refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={reload} tintColor="#F7C925" />
-        }
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} tintColor="#F7C925" />}
         onScrollToIndexFailed={(info) => {
-          listRef.current?.scrollToOffset({
-            offset: info.averageItemLength * info.index,
-            animated: true,
-          });
+          listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
         }}
-        ListEmptyComponent={
-          <Text style={styles.empty}>No hay mensajeros con los filtros actuales</Text>
-        }
+        ListEmptyComponent={<Text style={styles.empty}>No hay mensajeros con los filtros actuales</Text>}
       />
 
       <CourierModal
@@ -359,19 +352,13 @@ const styles = StyleSheet.create({
   map: { flex: 1 },
   fitButton: {
     position: 'absolute',
-    right: 12,
-    bottom: 12,
+    right: 12, bottom: 12,
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    width: 32,
-    height: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 32, height: 32,
+    justifyContent: 'center', alignItems: 'center',
     elevation: 3,
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 3,
+    shadowColor: '#000', shadowOpacity: 0.12, shadowOffset: { width: 0, height: 1 }, shadowRadius: 3,
   },
   header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6 },
   headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -379,56 +366,34 @@ const styles = StyleSheet.create({
   subtitle: { fontFamily: 'Inter_400Regular', fontSize: 13, color: '#6B7280', marginTop: 2 },
   filtersContainer: { minHeight: 48, justifyContent: 'center' },
   filterScroll: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    gap: 8,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, paddingVertical: 8, gap: 8,
   },
   chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#F9FAFB',
-    gap: 4,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 18,
+    borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB', gap: 4,
   },
   chipActive: { backgroundColor: '#F7C925', borderColor: '#F7C925' },
   chipText: { fontFamily: 'Inter_500Medium', fontSize: 14, color: '#6B7280' },
   chipTextActive: { color: '#1A1A1A' },
   separator: { width: 1, height: 22, backgroundColor: '#E5E7EB' },
   priceRatingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    gap: 8,
-    marginBottom: 6,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, gap: 8, marginBottom: 6,
   },
   numericInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    fontFamily: 'Inter_400Regular',
-    fontSize: 14,
-    color: '#1A1A1A',
+    flex: 1, borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 8,
+    paddingVertical: 8, paddingHorizontal: 10,
+    fontFamily: 'Inter_400Regular', fontSize: 14, color: '#1A1A1A',
   },
   list: { paddingHorizontal: 16, paddingBottom: 20 },
   empty: { textAlign: 'center', color: '#6B7280', marginTop: 40 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   marker: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
+    width: 32, height: 32, borderRadius: 16,
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 2, borderColor: '#FFFFFF',
   },
   markerText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 13 },
 });

@@ -3,6 +3,7 @@ import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/hooks/use-auth';
+import { getMyRoleLabel } from '@/utils/orderRoles';
 
 interface Props {
   item: any;
@@ -37,13 +38,6 @@ export default function OrderListItem({ item, showHistory }: Props) {
     );
   };
 
-  const roleLabel = () => {
-    if (item.customer_id === user?.id) return 'Enviado';
-    if (item.courier_id === user?.id) return 'Transportado';
-    if (item.recipient_id === user?.id) return 'Recibido';
-    return '';
-  };
-
   const canChat = !showHistory && ['assigned', 'picked_up', 'in_transit'].includes(item.status);
   const price = item.final_price ?? item.estimated_price;
 
@@ -76,7 +70,7 @@ export default function OrderListItem({ item, showHistory }: Props) {
         </Text>
         <View style={styles.footerRight}>
           <Text style={styles.roleLabel} numberOfLines={1}>
-            {roleLabel()}
+            {getMyRoleLabel(item, user?.id)}
           </Text>
           {canChat && (
             <TouchableOpacity

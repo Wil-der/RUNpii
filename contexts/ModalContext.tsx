@@ -1,5 +1,6 @@
 // contexts/ModalContext.tsx
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import AppModal from '@/components/AppModal'; // ← Importación al inicio
 
 export type ModalType = 'info' | 'confirm';
 
@@ -66,7 +67,3 @@ export function ModalProvider({ children }: { children: ReactNode }) {
 export function useAppModal() {
   return useContext(ModalContext);
 }
-
-// Necesitamos importar AppModal aquí, pero para evitar dependencias circulares
-// lo hacemos lazy o lo importamos directamente (asumo que AppModal está en components/AppModal)
-import AppModal from '@/components/AppModal';
